@@ -5,7 +5,7 @@
 import { strict as assert } from 'node:assert'
 import test from 'node:test'
 import { runTest } from '../src/runner.js'
-import { test as testCtor, step, click, fill, expectText, expectCount, goto } from '../src/steps.js'
+import { test as testCtor, step, click, fill, expectText, expectCount, expectUrl, goto } from '../src/steps.js'
 import { loadCache, saveCache, cacheLookup, cacheRecord } from '../src/cache.js'
 import { makeFingerprint } from '../src/fingerprint.js'
 
@@ -226,4 +226,47 @@ test('failing expectText: ok=false, remaining steps skipped', async () => {
   assert.equal(report.steps[0].status, 'fail')
   assert.equal(report.steps[1].status, 'skip', 'subsequent steps must be skipped')
   assert.ok(report.error, 'report must carry an error message')
+})
+test('expectUrl asserts against driver.url() instead of silently skipping', async () => {
+  // Regression guard: expectUrl carries no selector. The runner used to call
+  // find(undefined) first and crash, or skip when url() was absent.
+  const driver = makeFakeDriver(elements)
+  driver.url = async () => 'https://app.example.com/dashboard'
+
+  const pass = await runTest(testCtor('url-match', [expectUrl('https://app.example.com/dashboard')]), {
+    driver, provider: null, cachePath: `${cacheDir}/url-pass.json`, mode: 'auto',
+  })
+  assert.equal(pass.ok, true, 'matching URL must pass')
+  assert.equal(pass.steps[0].status, 'pass')
+
+  const fail = await runTest(testCtor('url-mismatch', [expectUrl('https://app.example.com/other')]), {
+    driver, provider: null, cachePath: `${cacheDir}/url-fail.json`, mode: 'auto',
+  })
+  assert.equal(fail.ok, false, 'mismatched URL must FAIL, not skip')
+  assert.equal(fail.steps[0].status, 'fail')
+  assert.match(fail.error, /expectUrl/, 'failure must name the assertion')
+})
+
+test('a plan that throws while executing is NOT recorded to the cache', async () => {
+  // Regression guard: the plan used to be cached before its actions ran, so a
+  // plan that failed mid-flight poisoned every later replay.
+  const driver = makeFakeDriver(elements)
+  const cachePathThrow = `${cacheDir}/not-recorded.json`
+  const { loadCache: l, cacheLookup: lookup } = await import('../src/cache.js')
+
+  const snap = await driver.snapshot()
+  const report = await runTest(testCtor('plan-throws', [step('do something')]), {
+    driver,
+    provider: { provider: 'deepseek', model: 'test', apiKey: 'x', baseUrl: 'http://test' },
+    cachePath: cachePathThrow,
+    mode: 'record',
+    planOverride: async () => ({ actions: [{ action: 'click', ref: '99' }], provider: 'deepseek', model: 'test' }),
+    // ref '99' does not exist in elements, so driver.act() throws at execution.
+  })
+
+  const cache = await l(cachePathThrow)
+  const hit = lookup(cache, 'do something', snap.fingerprint)
+  assert.equal(hit, null, 'a plan whose actions threw must not be cached')
+  assert.equal(report.recorded, 0, 'report.recorded must stay 0 when execution failed')
+  assert.equal(report.ok, false, 'the test must fail when an action throws')
 })

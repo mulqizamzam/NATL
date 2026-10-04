@@ -130,10 +130,7 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
       await writeFile(reportPath, toJson(report), 'utf8')
     }
 
-    // Exit BEFORE the finally block releases the browser handle — process.exit()
-    // here wins because there is no catch/finally wrapping it.
-    if (!report.ok) exitWith(1)
-    return
+    return report
   } catch (err) {
     if (err.isUsageExit) throw err
     die(err?.message ?? String(err))
@@ -231,8 +228,8 @@ try {
     }
 
     const cfg = loadConfig(flags.config)
-    await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed)
-    exitWith(0)
+    const report = await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed)
+    exitWith(report.ok ? 0 : 1)
   }
 
   die(`unknown command: ${cmd}. Run 'natl --help' for usage.`)

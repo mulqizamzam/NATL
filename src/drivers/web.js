@@ -117,7 +117,7 @@ export function createWebDriver({
       return {
         elements,
         text: ariaText(nodes),
-        fingerprint: makeFingerprint(elements),
+        fingerprint: makeFingerprint(elements, this._page ? this._page.url() : ''),
       }
     },
 
@@ -181,6 +181,10 @@ export function createWebDriver({
       if (!this._page) throw new NatlError('driver not opened: call open() first')
       await this._page.goto(url, { waitUntil: 'domcontentloaded' })
       this._elements = null // invalidate cached snapshot
+    },
+
+    async url() {
+      return this._page ? this._page.url() : null
     },
 
     async find(selector) {

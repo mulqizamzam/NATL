@@ -225,13 +225,19 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
           await request('POST', `${base}/click`, {})
           return
         case 'fill':
-          await request('POST', `${base}/value`, { text: value, clear: true })
+          // W3C Element Send Keys: both 'text' (string) and 'value' (array of
+          // codepoints) are required. The fake server in tests accepts either
+          // shape, so we send the canonical form here.
+          await request('POST', `${base}/value`, { text: value, value: value.split('') })
           return
         case 'clear':
-          await request('POST', `${base}/clear`, {})
+          // W3C Element Clear is a DELETE, not a POST.
+          await request('DELETE', `${base}/clear`, undefined)
           return
         case 'press':
-          await request('POST', `${base}/press`, { value })
+          // No W3C 'press' endpoint on elements. Route through Appium's
+          // /session/:id/keys instead (native-keyboard keys, not on-screen tap).
+          await request('POST', `${server}/session/${this._sid}/keys`, { value: [value] })
           return
         case 'wait':
           return

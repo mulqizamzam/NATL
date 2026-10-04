@@ -113,6 +113,18 @@ export async function runTest(testObj, opts) {
             driverName: driverLabel,
           })
           report.modelCalls++
+          // Run the planned actions FIRST. Recording before execution would
+          // persist a plan that was never proven to run, so a failure here
+          // would poison every later replay with a known-broken entry.
+          const snap2 = await driver.snapshot()
+          const refMap = buildRefMap(planResult.actions, snap.elements, snap2.elements)
+          for (const act of planResult.actions) {
+            const newRef = refMap.get(act.ref)
+            if (newRef === undefined) {
+              throw new NatlError(`planned ref ${act.ref} not found in snapshot`)
+            }
+            await driver.act({ ...act, ref: newRef })
+          }
           cacheRecord(cache, {
             key: makeCacheKey(step.text, snap.fingerprint),
             stepText: step.text,
@@ -124,16 +136,6 @@ export async function runTest(testObj, opts) {
             recordedAt: new Date().toISOString(),
           })
           report.recorded++
-          // Run the planned actions (remap refs to current snapshot if page changed).
-          const snap2 = await driver.snapshot()
-          const refMap = buildRefMap(planResult.actions, snap.elements, snap2.elements)
-          for (const act of planResult.actions) {
-            const newRef = refMap.get(act.ref)
-            if (newRef === undefined) {
-              throw new NatlError(`planned ref ${act.ref} not found in snapshot`)
-            }
-            await driver.act({ ...act, ref: newRef })
-          }
           entry.detail = 'planned'
         } else {
           entry.detail = entry.detail ?? 'replayed'
@@ -150,30 +152,8 @@ export async function runTest(testObj, opts) {
           entry.status = 'pass'
         }
       } else if (step.kind === 'expect') {
-        const { text, count } = await driver.find(step.sel)
-        if (step.fn === 'expectText') {
-          if (count === 0) {
-            throw new NatlError(`expectText: selector matched 0 elements: ${step.sel}`)
-          }
-          const actual = text.trim()
-          if (step.value instanceof RegExp) {
-            if (!step.value.test(actual)) {
-              throw new NatlError(`expectText: ${step.value} did not match "${actual}" for ${step.sel}`)
-            }
-          } else if (actual !== String(step.value)) {
-            throw new NatlError(
-              `expectText: expected "${step.value}" but found "${actual}" for ${step.sel}`,
-            )
-          }
-          entry.status = 'pass'
-        } else if (step.fn === 'expectCount') {
-          if (count !== Number(step.value)) {
-            throw new NatlError(
-              `expectCount: expected ${step.value} but found ${count} for ${step.sel}`,
-            )
-          }
-          entry.status = 'pass'
-        } else if (step.fn === 'expectUrl') {
+        // expectUrl carries no selector — dispatch it before the find().
+        if (step.fn === 'expectUrl') {
           if (typeof driver.url === 'function') {
             const current = await driver.url()
             if (current !== step.value) {
@@ -182,6 +162,32 @@ export async function runTest(testObj, opts) {
           } else {
             entry.status = 'skip'
             entry.detail = 'expectUrl skipped (driver has no url())'
+          }
+          entry.status = entry.status === 'skip' ? 'skip' : 'pass'
+        } else {
+          const { text, count } = await driver.find(step.sel)
+          if (step.fn === 'expectText') {
+            if (count === 0) {
+              throw new NatlError(`expectText: selector matched 0 elements: ${step.sel}`)
+            }
+            const actual = text.trim()
+            if (step.value instanceof RegExp) {
+              if (!step.value.test(actual)) {
+                throw new NatlError(`expectText: ${step.value} did not match "${actual}" for ${step.sel}`)
+              }
+            } else if (actual !== String(step.value)) {
+              throw new NatlError(
+                `expectText: expected "${step.value}" but found "${actual}" for ${step.sel}`,
+              )
+            }
+            entry.status = 'pass'
+          } else if (step.fn === 'expectCount') {
+            if (count !== Number(step.value)) {
+              throw new NatlError(
+                `expectCount: expected ${step.value} but found ${count} for ${step.sel}`,
+              )
+            }
+            entry.status = 'pass'
           }
         }
       }

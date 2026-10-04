@@ -81,7 +81,7 @@ test('act(click) POSTs to /element/el-Sign In/click', async () => {
   })
 })
 
-test('act(fill) posts {"text":value,"clear":true} to the edit field', async () => {
+test('act(fill) posts {"text":value,"value":[...codepoints]} to the edit field', async () => {
   await withFake({}, async ({ driver, calls }) => {
     const snap = await driver.snapshot()
     const ref = snap.elements.find((e) => e.role === 'textbox').ref
@@ -89,7 +89,10 @@ test('act(fill) posts {"text":value,"clear":true} to the edit field', async () =
     const value = calls.find((c) => c.path.endsWith('/value'))
     assert.ok(value, 'expected a /value call')
     assert.equal(value.path, '/session/fake-sess-1/element/el-com.example:id/email/value')
-    assert.deepEqual(JSON.parse(value.body), { text: 'ada@example.com', clear: true })
+    // W3C Element Send Keys requires both 'text' and 'value' (codepoint array).
+    const body = JSON.parse(value.body)
+    assert.equal(body.text, 'ada@example.com')
+    assert.deepEqual(body.value, 'ada@example.com'.split(''))
   })
 })
 

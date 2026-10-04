@@ -1,0 +1,142 @@
+import { describe, it, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { loadCache, cacheLookup, cacheRecord, saveCache } from '../src/cache.js'
+import { makeCacheKey, makeFingerprint } from '../src/fingerprint.js'
+
+const BASE_DIR = 'test/fixtures'
+
+describe('cache (frozen contract 5)', () => {
+  let tmpDir
+
+  before(async () => {
+    await mkdir(BASE_DIR, { recursive: true })
+    tmpDir = await mkdtemp(join(BASE_DIR, 'cache-'))
+  })
+
+  after(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('loadCache on a missing file returns an empty cache object', async () => {
+    const cache = await loadCache(join(tmpDir, 'missing.json'))
+    assert.deepEqual(cache, { version: 1, entries: {} })
+  })
+
+  it('record then lookup by the same step+fingerprint returns the entry', async () => {
+    const cache = await loadCache(join(tmpDir, 'record.json'))
+    const fp = makeFingerprint([{ role: 'button', name: 'Go' }])
+    const key = makeCacheKey('log in', fp)
+    const entry = {
+      key,
+      stepText: 'log in',
+      fingerprint: fp,
+      elements: [{ ref: '0', role: 'button', name: 'Go' }],
+      actions: [{ action: 'click', ref: '0' }],
+      provider: 'deepseek',
+      model: 'max',
+      recordedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const updated = cacheRecord(cache, entry)
+    assert.equal(updated, cache, 'cacheRecord returns the same cache object')
+    assert.strictEqual(cacheLookup(updated, 'log in', fp), entry)
+    assert.strictEqual(cache.entries[key], entry)
+  })
+
+  it('a different fingerprint is a MISS', () => {
+    const fp = makeFingerprint([{ role: 'button', name: 'Go' }])
+    const otherFp = makeFingerprint([{ role: 'button', name: 'Gone' }])
+    assert.notEqual(fp, otherFp, 'precondition: fingerprints differ')
+    const cache = { version: 1, entries: {} }
+    const entry = {
+      key: makeCacheKey('x', fp),
+      stepText: 'x',
+      fingerprint: fp,
+      elements: [],
+      actions: [],
+      recordedAt: 'now',
+    }
+    cacheRecord(cache, entry)
+    assert.strictEqual(cacheLookup(cache, 'x', fp), entry)
+    assert.strictEqual(cacheLookup(cache, 'x', otherFp), null)
+  })
+
+  it('re-recording a step does not remove another step\'s entry', () => {
+    const cache = {
+      version: 1,
+      entries: {
+        k1: {
+          key: 'k1',
+          stepText: 'a',
+          fingerprint: 'f1',
+          elements: [],
+          actions: [],
+          recordedAt: 'now',
+        },
+      },
+    }
+    cacheRecord(cache, {
+      key: 'k2',
+      stepText: 'b',
+      fingerprint: 'f2',
+      elements: [],
+      actions: [],
+      recordedAt: 'now',
+    })
+    assert.ok('k1' in cache.entries)
+    assert.ok('k2' in cache.entries)
+    assert.equal(cache.entries.k1.stepText, 'a')
+    assert.equal(cache.entries.k2.stepText, 'b')
+  })
+
+  it('save() to a path whose directory does not exist creates it', async () => {
+    const deepPath = join(tmpDir, 'nested', 'deep', 'cache.json')
+    const cache = { version: 1, entries: {} }
+    await saveCache(cache, deepPath)
+    const loaded = await loadCache(deepPath)
+    assert.equal(loaded.version, 1)
+    assert.deepEqual(loaded.entries, {})
+  })
+
+  it('save/load round-trips entries correctly', async () => {
+    const fp = makeFingerprint([{ role: 'button', name: 'Save' }])
+    const entry = {
+      key: makeCacheKey('submit', fp),
+      stepText: 'submit',
+      fingerprint: fp,
+      elements: [{ ref: '0', role: 'button', name: 'Save' }],
+      actions: [{ action: 'click', ref: '0' }],
+      provider: 'openai',
+      model: 'gpt-4o',
+      recordedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const cache = { version: 1, entries: { k1: { key: 'k1', stepText: 'other', fingerprint: 'other-fp', elements: [], actions: [] } } }
+    cacheRecord(cache, entry)
+    const path = join(tmpDir, 'round.json')
+    await saveCache(cache, path)
+    const loaded = await loadCache(path)
+    assert.equal(loaded.version, 1)
+    assert.ok('k1' in loaded.entries)
+    const found = cacheLookup(loaded, 'submit', fp)
+    assert.ok(found, 'entry survives the save/load round trip')
+    assert.deepStrictEqual(found, entry)
+    assert.equal(found.key, entry.key)
+  })
+
+  it('loadCache throws on a corrupt JSON file', async () => {
+    const path = join(tmpDir, 'corrupt.json')
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(path, '{not json', 'utf8')
+    let threw = false
+    let message = ''
+    try {
+      await loadCache(path)
+    } catch (err) {
+      threw = true
+      message = err.message
+    }
+    assert.ok(threw, 'loadCache should throw on corrupt JSON')
+    assert.match(message, /JSON/)
+  })
+})

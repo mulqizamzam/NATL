@@ -1,0 +1,21 @@
+{
+  "name": "natl",
+  "version": "0.1.0",
+  "description": "End-to-end testing for web and mobile apps. Write steps in plain English; the agent drives the app. Record once, replay without a model call.",
+  "type": "module",
+  "bin": {
+    "natl": "./bin/natl.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "e2e:web": "node bin/natl.js run examples/web/login.spec.js",
+    "e2e:web:replay": "NATL_FORCE=replay node bin/natl.js run examples/web/login.spec.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  }
+}

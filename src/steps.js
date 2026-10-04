@@ -1,0 +1,8 @@
+export const step = (text) => ({ kind: 'nl', text })
+export const goto = (url) => ({ kind: 'act', fn: 'goto', url })
+export const click = (sel) => ({ kind: 'act', fn: 'click', sel })
+export const fill = (sel, v) => ({ kind: 'act', fn: 'fill', sel, value: v })
+export const expectText = (sel, v) => ({ kind: 'expect', fn: 'expectText', sel, value: v })
+export const expectCount = (sel, n) => ({ kind: 'expect', fn: 'expectCount', sel, value: n })
+export const expectUrl = (v) => ({ kind: 'expect', fn: 'expectUrl', value: v })
+export const test = (name, steps) => ({ kind: 'test', name, steps })

@@ -1,0 +1,11 @@
+{
+  "appType": "web",
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "cacheDir": ".natl/cache",
+  "web": {
+    "url": "http://127.0.0.1:4173",
+    "headless": true,
+    "device": null
+  }
+}

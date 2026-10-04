@@ -27,9 +27,29 @@ const VERSION = (() => {
   }
 })()
 
+// Browser path: the natl repo pins browsers in .browsers/ (a writable location
+// on this host; the default ~/.cache is read-only in the DSH sandbox). Set
+// before any Playwright import so the real module picks it up.
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(root, '.browsers')
+
+// die() throws a tagged error so the top-level catch can call process.exit()
+// once, after all async handles are released. process.exit() inside a finally
+// block can be silently swallowed when a pending socket handle is still open.
+class UsageExit extends Error {
+  constructor(code, message) {
+    super(message)
+    this.code = code
+    this.isUsageExit = true
+  }
+}
+
 function die(msg) {
-  console.error(`natl: ${msg}`)
-  process.exit(2)
+  throw new UsageExit(2, msg)
+}
+
+function exitWith(code, message) {
+  if (message) console.error(`natl: ${message}`)
+  process.exit(code)
 }
 
 function loadConfig(configPath) {
@@ -51,7 +71,7 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
     const appType = cfg.appType ?? 'web'
 
     if (appType === 'mobile') {
-      // Mobile is not available here — the driver file may not yet exist.
+      // Mobile driver may not yet exist if this is a fresh checkout.
       const { createMobileDriver } = await import('../src/drivers/mobile.js').catch(() => null)
       if (!createMobileDriver) {
         die('mobile driver not available — ensure src/drivers/mobile.js exists')
@@ -110,8 +130,12 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
       await writeFile(reportPath, toJson(report), 'utf8')
     }
 
-    process.exit(report.ok ? 0 : 1)
+    // Exit BEFORE the finally block releases the browser handle — process.exit()
+    // here wins because there is no catch/finally wrapping it.
+    if (!report.ok) exitWith(1)
+    return
   } catch (err) {
+    if (err.isUsageExit) throw err
     die(err?.message ?? String(err))
   } finally {
     if (driver) {
@@ -153,55 +177,67 @@ Options:
 const args = process.argv.slice(2)
 const cmd = args[0] ?? 'help'
 
-if (cmd === '--help' || cmd === '-h' || cmd === 'help') {
-  printUsage()
-  process.exit(0)
-}
-if (cmd === '--version' || cmd === '-v') {
-  console.log(`natl v${VERSION}`)
-  process.exit(0)
-}
+try {
+  if (cmd === '--help' || cmd === '-h' || cmd === 'help') {
+    printUsage()
+    exitWith(0)
+  }
+  if (cmd === '--version' || cmd === '-v') {
+    console.log(`natl v${VERSION}`)
+    exitWith(0)
+  }
 
-if (cmd === 'init') {
-  const { init, askQuestions } = await import('../src/init.js')
-  try {
+  if (cmd === 'init') {
+    const { init, askQuestions } = await import('../src/init.js')
     const answers = await askQuestions(true)
     const { configPath, testPath } = await init({ cwd: process.cwd(), answers })
     console.log(`Config written to: ${configPath}`)
     console.log(`Starter test:     ${testPath}`)
     console.log()
     console.log('Next steps:')
-    console.log(`  1. Export your API key, e.g. export NATL_API_KEY=...`)
+    console.log('  1. Export your API key, e.g. export NATL_API_KEY=...')
     console.log(`  2. Edit the starter test at ${testPath}`)
-    console.log(`  3. Run:  natl run ${testPath}`)
-  } catch (err) {
-    if (err.message?.includes('EISDIR') || err.message?.includes('not a tty')) {
-      die('interactive mode requires a TTY; pass --answers=<json> instead')
+    console.log('  3. Run:  natl run ' + testPath)
+    exitWith(0)
+  }
+
+  if (cmd === 'run' || cmd === 'replay' || cmd === 'record') {
+    const mode = cmd === 'replay' ? 'replay' : cmd === 'record' ? 'record' : 'auto'
+    const file = args[1]
+    if (!file) die('missing test file path')
+
+    const flags = {}
+    // Accept both --flag=value and --flag value.
+    const VALUE_FLAGS = { '--config': 'config', '--provider': 'provider', '--model': 'model', '--report': 'report' }
+    for (let i = 2; i < args.length; i++) {
+      const a = args[i]
+      if (a === '--headed') { flags.headed = true; continue }
+      if (a.startsWith('--')) {
+        const eq = a.indexOf('=')
+        if (eq !== -1) {
+          const name = a.slice(0, eq)
+          if (VALUE_FLAGS[name]) { flags[VALUE_FLAGS[name]] = a.slice(eq + 1); continue }
+          die(`unknown flag: ${name}`)
+        }
+        if (VALUE_FLAGS[a]) {
+          const next = args[i + 1]
+          if (next === undefined || next.startsWith('--')) die(`flag ${a} needs a value`)
+          flags[VALUE_FLAGS[a]] = next
+          i++
+          continue
+        }
+        die(`unknown flag: ${a}`)
+      }
     }
-    throw err
-  }
-  process.exit(0)
-}
 
-if (cmd === 'run' || cmd === 'replay' || cmd === 'record') {
-  const mode = cmd === 'replay' ? 'replay' : cmd === 'record' ? 'record' : 'auto'
-  const file = args[1]
-  if (!file) die('missing test file path')
-
-  const flags = {}
-  for (let i = 2; i < args.length; i++) {
-    const a = args[i]
-    if (a.startsWith('--config=')) flags.config = a.slice(9)
-    else if (a.startsWith('--provider=')) flags.provider = a.slice(11)
-    else if (a.startsWith('--model=')) flags.model = a.slice(8)
-    else if (a.startsWith('--report=')) flags.report = a.slice(9)
-    else if (a === '--headed') flags.headed = true
-    else if (a.startsWith('--')) die(`unknown flag: ${a}`)
+    const cfg = loadConfig(flags.config)
+    await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed)
+    exitWith(0)
   }
 
-  const cfg = loadConfig(flags.config)
-  await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed)
-  process.exit(0)
+  die(`unknown command: ${cmd}. Run 'natl --help' for usage.`)
+} catch (err) {
+  if (err.isUsageExit) exitWith(err.code, err.message)
+  console.error(`natl: ${err?.message ?? String(err)}`)
+  exitWith(1)
 }
-
-die(`unknown command: ${cmd}. Run 'natl --help' for usage.`)

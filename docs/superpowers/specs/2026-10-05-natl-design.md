@@ -64,10 +64,17 @@ any DOM change.
 
 A recorded action list is replayed only when **both** hold:
 
-1. **Page fingerprint matches.** SHA-256 over the normalized snapshot (element
-   list with roles+names only, no positions). This detects "the app changed".
+1. **Page fingerprint matches.** SHA-256 over `url + sorted [role,name] pairs`.
+   The URL prevents replaying a plan from one page against another with the same
+   element multiset; sorting prevents false negatives from element reordering.
 2. **Replay executes without throwing.** If the recorded action raises (element
    gone, not clickable), the step falls back to the model.
+
+If multiple current elements share the same `{role, name}` pair, the ref-map
+disambiguates by **ordinal position within the group** (the Nth occurrence of
+`{role,name}` in the recorded snapshot maps to the Nth occurrence on the live
+page). A group-size mismatch falls back to first-match rather than throwing,
+because a page that adds or removes one duplicate is not a semantic change.
 
 Rationale: fingerprint equality does not prove the replay will succeed (an
 element can exist but be disabled), and a throwing replay does not prove the app

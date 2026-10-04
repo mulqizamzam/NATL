@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Acme Login</title>
+</head>
+<body>
+  <h1>Acme Login</h1>
+  <form id="login-form">
+    <input id="email" type="email" placeholder="Email" aria-label="Email" />
+    <input id="password" type="password" placeholder="Password" aria-label="Password" />
+    <button id="submit" type="submit">Sign In</button>
+  </form>
+  <div id="status" role="status"></div>
+  <ul id="items">
+    <li class="item">Welcome</li>
+    <li class="item">Dashboard</li>
+    <li class="hidden-item" style="display:none">Hidden</li>
+  </ul>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', function (e) {
+      e.preventDefault()
+      var email = document.getElementById('email').value
+      var status = document.getElementById('status')
+      if (email) {
+        status.textContent = 'Welcome, ' + email
+      } else {
+        status.textContent = 'Email is required'
+      }
+    })
+  </script>
+</body>
+</html>

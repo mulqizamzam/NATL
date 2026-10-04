@@ -121,9 +121,19 @@ export function createWebDriver({
       }
     },
 
+    /**
+     * Execute one action.
+     *
+     * Targets the element by `ref` (a recorded/planned snapshot position) or,
+     * for deterministic test steps, directly by `sel` (a CSS selector). The
+     * selector form is exact and skips the ref/fingerprint machinery entirely.
+     */
     async act(actionObj) {
-      const { action, ref, value } = actionObj
+      const { action, ref, value, sel } = actionObj
       if (!this._page) throw new NatlError('driver not opened: call open() first')
+
+      if (sel !== undefined) return actOnSelector(this._page, action, sel, value)
+
       if (!this._elements || this._elements.length === 0) {
         await this.snapshot()
       }
@@ -204,6 +214,40 @@ async function clickViaChain(page, el) {
   }
   if (totalMatched === 0) {
     throw new NatlError(`no element found matching role=${el.role} name=${el.name}`)
+  }
+}
+
+/**
+ * Deterministic selector-based action: exact CSS match, no ref resolution.
+ * Throws NatlError if the selector matches 0 elements (the deterministic step
+ * contract: a missing element is a test failure, not a silent skip).
+ */
+async function actOnSelector(page, action, sel, value) {
+  const loc = page.locator(sel)
+  const n = await loc.count()
+  if (n === 0) throw new NatlError(`selector matched 0 elements: ${sel}`)
+  switch (action) {
+    case 'click':
+      await loc.first().click()
+      return
+    case 'fill':
+      await loc.first().fill(value)
+      return
+    case 'clear':
+      if (typeof loc.first().clear === 'function') await loc.first().clear()
+      else await loc.first().fill('')
+      return
+    case 'press':
+      await loc.first().press(value)
+      return
+    case 'scroll':
+      await loc.first().scrollIntoViewIfNeeded()
+      return
+    case 'wait':
+      await loc.first().waitFor({ state: 'attached' })
+      return
+    default:
+      throw new NatlError(`unknown action: ${action}`)
   }
 }
 

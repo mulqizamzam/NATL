@@ -191,15 +191,22 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
 
     async act(actionObj) {
       if (!this._sid) throw new NatlError('driver not opened: call open() first')
-      const { action, ref, value } = actionObj
+      const { action, ref, value, sel } = actionObj
 
-      // Re-resolve against the live page: refs are positions, and the page may
-      // have moved since the planner read them.
-      const snap = await this.snapshot()
-      const el = snap.elements.find((e) => e.ref === String(ref))
-      if (!el) throw new NatlError(`ref ${ref} not in current snapshot`)
-      const node = this._elements.find((e) => e.ref === String(ref))
-      const { strategy, value: selValue } = resolveStrategy(node.selector || el.name)
+      // Deterministic test steps pass `sel` directly (accessibility-id, xpath, or id=).
+      // Skip the ref/fingerprint machinery entirely for these.
+      let strategy, selValue
+      if (sel !== undefined) {
+        ({ strategy, value: selValue } = resolveStrategy(sel))
+      } else {
+        // Re-resolve against the live page: refs are positions, and the page may
+        // have moved since the planner read them.
+        const snap = await this.snapshot()
+        const el = snap.elements.find((e) => e.ref === String(ref))
+        if (!el) throw new NatlError(`ref ${ref} not in current snapshot`)
+        const node = this._elements.find((e) => e.ref === String(ref))
+        ;({ strategy, value: selValue } = resolveStrategy(node.selector || el.name))
+      }
 
       if (action === 'scroll') {
         await request('POST', `${server}/session/${this._sid}/execute/sync`, {

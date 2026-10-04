@@ -6,12 +6,22 @@
  * Anthropic uses its own Messages API path.
  */
 
-export class NatlError extends Error {
-  constructor(message) {
-    super(message)
-    this.name = 'NatlError'
-  }
-}
+import { NatlError } from './errors.js'
+
+// Single source of truth for provider base URLs. Exported so init.js does not
+// duplicate the table — a second copy would silently drift from this one.
+export const PROVIDER_BASE_URLS = Object.freeze(
+  Object.fromEntries(
+    [
+      ['openai', 'https://api.openai.com/v1'],
+      ['anthropic', 'https://api.anthropic.com/v1'],
+      ['deepseek', 'https://api.deepseek.com/v1'],
+      ['ollama', 'http://127.0.0.1:11434/v1'],
+    ],
+  ),
+)
+// Re-export for callers that previously imported NatlError from here.
+export { NatlError }
 
 const PROVIDERS = Object.freeze({
   openai: {

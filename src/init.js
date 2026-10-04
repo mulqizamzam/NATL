@@ -4,21 +4,11 @@
 // `answers` is provided, so it is testable without a TTY.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { NatlError } from './errors.js';
+import { PROVIDER_BASE_URLS } from './llm.js';
 
 /** Base URLs used when `answers.baseUrl` is null. Ollama needs no key. */
-export const PROVIDERS = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  deepseek: 'https://api.deepseek.com/v1',
-  ollama: 'http://127.0.0.1:11434/v1',
-};
-
-export class NatlError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'NatlError';
-  }
-}
+export const PROVIDERS = PROVIDER_BASE_URLS;
 
 function fail(message) {
   throw new NatlError(message);

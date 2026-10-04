@@ -125,7 +125,7 @@ function buildAnthropicBody(system, userMessage, model) {
 /**
  * Build an OpenAI-shaped request body (openai / deepseek / ollama).
  */
-function buildOpenAIBody(system, userMessage, model, isOllama) {
+function buildOpenAIBody(system, userMessage, model) {
   return {
     model,
     messages: [
@@ -134,7 +134,6 @@ function buildOpenAIBody(system, userMessage, model, isOllama) {
     ],
     tools: buildTools(),
     stream: false,
-    ...(isOllama ? {} : { extra_body: {} }),
   }
 }
 
@@ -248,7 +247,7 @@ export async function callModel({
   }
 
   // OpenAI-shaped path: openai / deepseek / ollama
-  const body = buildOpenAIBody(system, user, model, provider === 'ollama')
+  const body = buildOpenAIBody(system, user, model)
   const headers = {
     'Content-Type': 'application/json',
   }

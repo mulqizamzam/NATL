@@ -238,6 +238,30 @@ test('planner — an invalid ref does not trigger a repair retry', async () => {
 // provider config passthrough
 // ---------------------------------------------------------------------------
 
+test('planner — accepts the frozen contract 6 `drivers` param (string or object)', async () => {
+  // string form
+  let { fn, calls } = stubCallModel([VALID_PLAN])
+  await plan({
+    provider: PROVIDER,
+    instruction: 'click the sign in button',
+    snapshot: SNAPSHOT,
+    drivers: 'mobile',
+    callModelOverride: fn,
+  })
+  assert.ok(calls[0].user.includes('mobile'), 'string drivers param feeds the prompt')
+
+  // object form
+  ;({ fn, calls } = stubCallModel([VALID_PLAN]))
+  await plan({
+    provider: PROVIDER,
+    instruction: 'click the sign in button',
+    snapshot: SNAPSHOT,
+    drivers: { name: 'android' },
+    callModelOverride: fn,
+  })
+  assert.ok(calls[0].user.includes('android'), 'object drivers param feeds the prompt')
+})
+
 test('planner — reports provider and model from the provider config', async () => {
   const { fn } = stubCallModel([VALID_PLAN])
 

@@ -70,10 +70,15 @@ function validateActions(actions, snapshot) {
 /**
  * Plan one natural-language step.
  *
+ * `drivers` (frozen contract 6) and `driverName` are both accepted: the first
+ * may be a driver name or a driver object, the second is always the name.
+ * It only labels the prompt — the planner never touches the driver.
+ *
  * @param {object} params
  * @param {{provider:string, model:string, apiKey:string, baseUrl?:string}} params.provider
  * @param {string} params.instruction
  * @param {{elements: Array<{ref:string,role:string,name:string}>, text:string}} params.snapshot
+ * @param {string|{name?:string}} [params.drivers]
  * @param {string} [params.driverName]
  * @param {Function} [params.callModelOverride] — inject a stub for testing
  * @returns {Promise<{actions: Array, provider: string, model: string}>}
@@ -82,12 +87,17 @@ export async function plan({
   provider,
   instruction,
   snapshot,
-  driverName = 'web',
+  drivers,
+  driverName,
   callModelOverride,
 }) {
   const callModelFn = callModelOverride ?? callModel
+  const resolvedDriverName =
+    driverName ??
+    (typeof drivers === 'string' ? drivers : drivers?.name) ??
+    'web'
   const systemBase = buildSystemPrompt()
-  const userMessage = buildUserMessage(instruction, snapshot, driverName)
+  const userMessage = buildUserMessage(instruction, snapshot, resolvedDriverName)
 
   let systemPrompt = systemBase
   let parsed

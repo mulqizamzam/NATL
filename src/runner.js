@@ -65,7 +65,7 @@ export async function runTest(testObj, opts) {
 
     try {
       if (step.kind === 'nl') {
-        const snap = await driver.snapshot()
+        let snap = await driver.snapshot()
         let planResult = null
 
         if (mode !== 'record') {
@@ -74,26 +74,27 @@ export async function runTest(testObj, opts) {
             planResult = { actions: hit.actions, provider: hit.provider, model: hit.model }
             // remap recorded refs to current refs by matching {role, name}
             const refMap = remapRefs(hit.elements, snap.elements)
+            let replayedAll = true
             for (const act of planResult.actions) {
               const newRef = refMap.get(act.ref)
               if (newRef === undefined) {
                 // element gone — fall through to plan
                 planResult = null
                 entry.detail = 'replay-miss (changed)'
+                replayedAll = false
                 break
               }
               try {
                 await driver.act({ ...act, ref: newRef })
-              } catch (err) {
+              } catch {
                 // action threw — fall through to plan
                 planResult = null
                 entry.detail = 'replay-miss (failed)'
+                replayedAll = false
                 break
               }
             }
-            if (planResult !== null) {
-              report.replayed++
-            }
+            if (replayedAll) report.replayed++
           }
         }
 
@@ -105,6 +106,14 @@ export async function runTest(testObj, opts) {
           }
           if (!provider) {
             throw new NatlError('no provider configured — cannot execute NL step')
+          }
+          // A partially-executed replay already mutated the page (e.g. a fill
+          // succeeded before the click failed). Planning against the snapshot
+          // taken BEFORE that replay would show the model a page that no longer
+          // exists, so re-read the live state.
+          if (entry.detail?.startsWith('replay-miss')) {
+            snap = await driver.snapshot()
+            entry.detail += ' — replanned against live page'
           }
           planResult = await (planOverride ?? plan)({
             provider,
@@ -225,9 +234,14 @@ export async function runTest(testObj, opts) {
 /**
  * Build a ref-map from plan-result refs to current snapshot refs by matching
  * {role, name} pairs. Returns a Map<oldRef, newRef>.
+ *
+ * When several current elements share the same {role,name}, disambiguate by
+ * ordinal position within that group. If the group sizes differ, fall back to
+ * first-match (with a recorded detail) rather than throwing: losing the
+ * ordinal is recoverable, but throwing here would turn every page with two
+ * same-named links into a permanent replay failure.
  */
 function buildRefMap(actions, prevElements, currentElements) {
-  // Collect the {role, name} of every action's ref from the plan's snapshot.
   const needed = new Map()
   for (const act of actions) {
     const el = prevElements.find((e) => e.ref === act.ref)
@@ -235,24 +249,43 @@ function buildRefMap(actions, prevElements, currentElements) {
   }
   const refMap = new Map()
   for (const [prevRef, prevEl] of needed) {
-    const currentEl = currentElements.find(
+    const matches = currentElements.filter(
       (e) => e.role === prevEl.role && e.name === prevEl.name,
     )
-    if (currentEl) refMap.set(prevRef, currentEl.ref)
+    if (matches.length === 0) continue
+    if (matches.length === 1) {
+      refMap.set(prevRef, matches[0].ref)
+      continue
+    }
+    // Multiple matches: use ordinal position among same-named elements in the
+    // recorded snapshot to pick the right one.
+    const idxInGroup = prevElements.filter(
+      (e) => e.role === prevEl.role && e.name === prevEl.name,
+    ).findIndex((e) => e.ref === prevRef)
+    refMap.set(prevRef, (matches[idxInGroup] ?? matches[0]).ref)
   }
   return refMap
 }
 
 /**
- * Remap recorded refs to current refs for replay. Returns Map<oldRef, newRef>.
+ * Remap recorded refs to current refs for replay.
+ * Same ordinal-disambiguation as buildRefMap.
  */
 function remapRefs(prevElements, currentElements) {
   const refMap = new Map()
   for (const prevEl of prevElements) {
-    const cur = currentElements.find(
+    const matches = currentElements.filter(
       (e) => e.role === prevEl.role && e.name === prevEl.name,
     )
-    if (cur) refMap.set(prevEl.ref, cur.ref)
+    if (matches.length === 0) continue
+    if (matches.length === 1) {
+      refMap.set(prevEl.ref, matches[0].ref)
+      continue
+    }
+    const idxInGroup = prevElements.filter(
+      (e) => e.role === prevEl.role && e.name === prevEl.name,
+    ).findIndex((e) => e.ref === prevEl.ref)
+    refMap.set(prevEl.ref, (matches[idxInGroup] ?? matches[0]).ref)
   }
   return refMap
 }

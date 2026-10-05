@@ -64,7 +64,7 @@ function loadConfig(configPath) {
   }
 }
 
-async function run(file, cfg, mode, providerOverride, modelOverride, reportPath, headed) {
+async function run(file, cfg, mode, providerOverride, modelOverride, reportPath, headed, baseUrlOverride) {
   const { createWebDriver } = await import('../src/drivers/web.js')
   let driver = null
   try {
@@ -100,15 +100,18 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
     }
 
     // Provider config: CLI flag wins, then config file, then env.
+    // baseUrl: cfg.baseUrl (from natl.config.json) → NATL_BASE_URL env → undefined.
     const providerName = providerOverride ?? cfg.provider ?? process.env.NATL_PROVIDER
     const model =
       modelOverride ?? cfg.model ?? process.env.NATL_MODEL ?? (providerName === 'ollama' ? 'qwen3' : undefined)
     const apiKey =
       process.env.NATL_API_KEY ??
       process.env[`${String(providerName ?? '').toUpperCase()}_API_KEY`] ??
+      process.env.NINE_ROUTER_API_KEY ??
       ''
+    const baseUrl = baseUrlOverride ?? cfg.baseUrl ?? process.env.NATL_BASE_URL ?? undefined
     const provider = providerName
-      ? { provider: providerName, model, apiKey, baseUrl: cfg.baseUrl ?? process.env.NATL_BASE_URL ?? undefined }
+      ? { provider: providerName, model, apiKey, baseUrl }
       : null
 
     const cacheDir = cfg.cacheDir ?? '.natl/cache'
@@ -205,7 +208,7 @@ try {
 
     const flags = {}
     // Accept both --flag=value and --flag value.
-    const VALUE_FLAGS = { '--config': 'config', '--provider': 'provider', '--model': 'model', '--report': 'report', '--mode': 'mode' }
+    const VALUE_FLAGS = { '--config': 'config', '--provider': 'provider', '--model': 'model', '--report': 'report', '--mode': 'mode', '--base-url': 'baseUrl' }
     for (let i = 2; i < args.length; i++) {
       const a = args[i]
       if (a === '--headed') { flags.headed = true; continue }
@@ -238,7 +241,7 @@ try {
     }
 
     const cfg = loadConfig(flags.config)
-    const report = await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed)
+    const report = await run(file, cfg, mode, flags.provider, flags.model, flags.report, flags.headed, flags.baseUrl)
     exitWith(report.ok ? 0 : 1)
   }
 

@@ -199,13 +199,13 @@ try {
   }
 
   if (cmd === 'run' || cmd === 'replay' || cmd === 'record') {
-    const mode = cmd === 'replay' ? 'replay' : cmd === 'record' ? 'record' : 'auto'
+    let mode = cmd === 'replay' ? 'replay' : cmd === 'record' ? 'record' : 'auto'
     const file = args[1]
     if (!file) die('missing test file path')
 
     const flags = {}
     // Accept both --flag=value and --flag value.
-    const VALUE_FLAGS = { '--config': 'config', '--provider': 'provider', '--model': 'model', '--report': 'report' }
+    const VALUE_FLAGS = { '--config': 'config', '--provider': 'provider', '--model': 'model', '--report': 'report', '--mode': 'mode' }
     for (let i = 2; i < args.length; i++) {
       const a = args[i]
       if (a === '--headed') { flags.headed = true; continue }
@@ -225,6 +225,16 @@ try {
         }
         die(`unknown flag: ${a}`)
       }
+    }
+
+    // --mode overrides the mode implied by the subcommand (natl replay/record
+    // set it; `natl run --mode replay` is equivalent to `natl replay`).
+    const MODE_VALUES = new Set(['auto', 'replay', 'record'])
+    if (flags.mode !== undefined) {
+      if (!MODE_VALUES.has(flags.mode)) {
+        die(`--mode must be one of auto, replay, record (got ${flags.mode})`)
+      }
+      mode = flags.mode
     }
 
     const cfg = loadConfig(flags.config)

@@ -55,7 +55,8 @@ const PROVIDERS = Object.freeze({
 })
 
 /**
- * Validate that a string is a valid URI base (no path segment).
+ * Validate that a string is a parsable URI with http: or https: protocol.
+ * Does NOT enforce the absence of a path segment.
  */
 function isValidUrlBase(str) {
   try {
@@ -222,7 +223,6 @@ export async function callModel({
   baseUrl,
   system,
   user,
-  instructions,
 }) {
   const def = PROVIDERS[provider]
   if (!def) throw new NatlError(`unknown provider: ${provider}`)

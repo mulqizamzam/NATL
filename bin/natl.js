@@ -228,6 +228,7 @@ try {
         }
         die(`unknown flag: ${a}`)
       }
+      die(`unexpected argument: ${a} (only one test file is supported)`)
     }
 
     // --mode overrides the mode implied by the subcommand (natl replay/record

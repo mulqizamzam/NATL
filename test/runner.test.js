@@ -270,3 +270,98 @@ test('a plan that throws while executing is NOT recorded to the cache', async ()
   assert.equal(report.recorded, 0, 'report.recorded must stay 0 when execution failed')
   assert.equal(report.ok, false, 'the test must fail when an action throws')
 })
+
+test('duplicate {role,name} elements: ordinal disambiguation maps Nth→Nth, not always first', async () => {
+  // Regression guard: the ref-map used to collapse every same-named element to
+  // the first match, silently driving the wrong DOM node. It now disambiguates
+  // by ordinal position within the {role,name} group.
+  // Fixture: two identical "Next" buttons + one unique email field.
+  const dupElements = [
+    { role: 'textbox', name: 'email' },
+    { role: 'button', name: 'Next' },   // ref 1
+    { role: 'button', name: 'Next' },   // ref 2 — identical to ref 1
+  ]
+  const driver = makeFakeDriver(dupElements)
+  const dupCache = `${cacheDir}/dup.json`
+  const { loadCache: l, cacheLookup: lookup } = await import('../src/cache.js')
+
+  const snap = await driver.snapshot()
+  // Target the SECOND "Next" (ref '2'), not the first.
+  const report = await runTest(testCtor('dup', [step('go')]), {
+    driver,
+    provider: { provider: 'deepseek', model: 'test', apiKey: 'x', baseUrl: 'http://test' },
+    cachePath: dupCache,
+    mode: 'record',
+    planOverride: async () => ({ actions: [{ action: 'click', ref: '2' }], provider: 'deepseek', model: 'test' }),
+  })
+
+  assert.equal(report.ok, true, 'record run with duplicate elements must succeed')
+  // Verify the cache recorded ref '2', not ref '1'.
+  const cache = await l(dupCache)
+  const hit = lookup(cache, 'go', snap.fingerprint)
+  assert.ok(hit, 'plan must be recorded')
+  assert.equal(hit.actions[0].ref, '2', 'recorded plan must target ref 2 (the second Next)')
+})
+
+test('record → replay across two separate processes: second process reads cache from disk', async () => {
+  // Regression guard: replay must work from a COLD start (no in-memory state).
+  // This spawns a real child process for the record run, then another for the
+  // replay run, proving the on-disk cache is the actual persistence mechanism.
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const exec = promisify(execFile)
+
+  const crossCache = `${cacheDir}/cross-process.json`
+  const planScript = `
+    import { runTest } from '${process.cwd()}/src/runner.js'
+    import { test, step } from '${process.cwd()}/src/steps.js'
+    const els = [
+      { role: 'textbox', name: 'email' },
+      { role: 'button', name: 'Submit' },
+    ]
+    const driver = {
+      driverName: 'fake',
+      async open() {}, async close() {},
+      async snapshot() {
+        const { makeFingerprint } = await import('${process.cwd()}/src/fingerprint.js')
+        const e = els.map((e, i) => ({ ref: String(i), ...e }))
+        return { elements: e, text: els.map(x => x.name).join('\\n'),
+                 fingerprint: makeFingerprint(e) }
+      },
+      async act(a) {
+        if (a.ref !== undefined && Number(a.ref) >= els.length)
+          throw new Error('ref out of range')
+      },
+      async goto() {},
+      async find() { return { text: '', count: 0 } },
+    }
+    const report = await runTest(test('cross', [step('login')]), {
+      driver,
+      provider: { provider: 'deepseek', model: 'test', apiKey: 'x', baseUrl: 'http://t' },
+      cachePath: '${crossCache}',
+      mode: process.argv[2] || 'auto',
+      planOverride: async ({ snapshot }) => ({
+        actions: [{ action: 'fill', ref: '0', value: 'x' }, { action: 'click', ref: '1' }],
+        provider: 'deepseek', model: 'test',
+      }),
+    })
+    console.log(JSON.stringify({ ok: report.ok, modelCalls: report.modelCalls,
+                                 replayed: report.replayed, recorded: report.recorded }))
+  `
+  const scriptPath = `${cacheDir}/cross-process-runner.mjs`
+  await (await import('node:fs/promises')).writeFile(scriptPath, planScript, 'utf8')
+
+  // Process 1: record mode
+  const { stdout: out1 } = await exec('node', [scriptPath, 'record'])
+  const r1 = JSON.parse(out1.trim())
+  assert.equal(r1.ok, true, 'record process must pass')
+  assert.equal(r1.recorded, 1, 'record process must record 1 plan')
+  assert.equal(r1.modelCalls, 1, 'record process must call the model')
+
+  // Process 2: replay mode (cold start — no in-memory cache)
+  const { stdout: out2 } = await exec('node', [scriptPath, 'replay'])
+  const r2 = JSON.parse(out2.trim())
+  assert.equal(r2.ok, true, 'replay process must pass from cold start')
+  assert.equal(r2.modelCalls, 0, 'replay process must make ZERO model calls')
+  assert.equal(r2.replayed, 1, 'replay process must replay from disk')
+})

@@ -10,9 +10,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/",
-    "e2e:web": "PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node bin/natl.js run examples/web/login.test.js",
-    "e2e:web:replay": "PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node bin/natl.js run examples/web/login.test.js --mode replay"
+    "test": "PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node --test",
+    "e2e:web": "node examples/web/server.mjs & PID=$!; sleep 1; PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node bin/natl.js run examples/web/login.test.js; kill $PID 2>/dev/null",
+    "e2e:web:replay": "node examples/web/server.mjs & PID=$!; sleep 1; PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node bin/natl.js run examples/web/login.test.js --mode replay; kill $PID 2>/dev/null"
   },
   "license": "MIT",
   "devDependencies": {

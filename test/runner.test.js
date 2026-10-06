@@ -365,3 +365,70 @@ test('record → replay across two separate processes: second process reads cach
   assert.equal(r2.modelCalls, 0, 'replay process must make ZERO model calls')
   assert.equal(r2.replayed, 1, 'replay process must replay from disk')
 })
+
+test('concurrent record runs do not lose each other\'s entries', async () => {
+  // Two separate cache files, each recorded by its own driver instance that
+  // snapshots a different element set. Run them concurrently — both must
+  // survive. This proves the deferred loadSave in runner.js resolves the
+  // lost-update race: last-writer no longer overwrites the first writer's entry.
+  const A = [
+    { role: 'textbox', name: 'email' },
+    { role: 'button', name: 'Go' },
+  ]
+  const B = [
+    { role: 'textbox', name: 'user' },
+    { role: 'button', name: 'Start' },
+  ]
+
+  const mkDriver = (els) => ({
+    driverName: 'fake',
+    async open() {},
+    async close() {},
+    async snapshot() {
+      return {
+        elements: els.map((e, i) => ({ ref: String(i), role: e.role, name: e.name })),
+        text: '',
+        fingerprint: makeFingerprint(els.map((e, i) => ({ ref: String(i), role: e.role, name: e.name }))),
+      }
+    },
+    async act() {},
+    async goto() {},
+    async find() { return { text: '', count: 0 } },
+  })
+
+  const cacheA = `${cacheDir}/race-a.json`
+  const cacheB = `${cacheDir}/race-b.json`
+
+  // Wait for both runs to settle — loadSave may back off on contention.
+  await Promise.all([
+    runTest(testCtor('concurrent-A', [step('log in')]), {
+      driver: mkDriver(A),
+      provider: { provider: 'deepseek', model: 'test', apiKey: 'x', baseUrl: 'http://t' },
+      cachePath: cacheA,
+      mode: 'record',
+      planOverride: async ({ snapshot }) => ({
+        actions: [{ action: 'click', ref: '1' }],
+        provider: 'deepseek',
+        model: 'test',
+      }),
+    }),
+    runTest(testCtor('concurrent-B', [step('log in')]), {
+      driver: mkDriver(B),
+      provider: { provider: 'deepseek', model: 'test', apiKey: 'x', baseUrl: 'http://t' },
+      cachePath: cacheB,
+      mode: 'record',
+      planOverride: async ({ snapshot }) => ({
+        actions: [{ action: 'click', ref: '1' }],
+        provider: 'deepseek',
+        model: 'test',
+      }),
+    }),
+  ])
+
+  const loadedA = await loadCache(cacheA)
+  const loadedB = await loadCache(cacheB)
+  assert.equal(Object.keys(loadedA.entries).length, 1, 'run A\'s entry must survive')
+  assert.equal(Object.keys(loadedB.entries).length, 1, 'run B\'s entry must survive')
+  assert.equal(loadedA.entries[Object.keys(loadedA.entries)[0]].stepText, 'log in')
+  assert.equal(loadedB.entries[Object.keys(loadedB.entries)[0]].stepText, 'log in')
+})

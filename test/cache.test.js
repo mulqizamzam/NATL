@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { loadCache, cacheLookup, cacheRecord, saveCache } from '../src/cache.js'
+import { loadCache, cacheLookup, cacheRecord, saveCache, loadSave } from '../src/cache.js'
 import { makeCacheKey, makeFingerprint } from '../src/fingerprint.js'
 
 const BASE_DIR = 'test/fixtures'
@@ -138,5 +138,62 @@ describe('cache (frozen contract 5)', () => {
     }
     assert.ok(threw, 'loadCache should throw on corrupt JSON')
     assert.match(message, /JSON/)
+  })
+
+  it('parallel writers using loadSave must not drop entries', async () => {
+    const racePath = join(tmpDir, 'race-merged.json')
+    await Promise.all(
+      [1, 2, 3].map(async (i) => {
+        await loadSave(racePath, (c) => {
+          cacheRecord(c, {
+            key: makeCacheKey(`step-${i}`, `fp-${i}`),
+            stepText: `step-${i}`,
+            fingerprint: `fp-${i}`,
+            elements: [],
+            actions: [],
+            provider: 'p',
+            model: 'm',
+          })
+        })
+      }),
+    )
+    const final = await loadCache(racePath)
+    assert.equal(
+      Object.keys(final.entries).length,
+      3,
+      'all 3 concurrently recorded entries must survive',
+    )
+  })
+
+  it('loadSave preserves existing entries when transform adds one', async () => {
+    const path = join(tmpDir, 'loadsave-preserves.json')
+    const fp1 = makeFingerprint([{ role: 'button', name: 'A' }])
+    await loadSave(path, (c) => {
+      cacheRecord(c, {
+        key: makeCacheKey('first', fp1),
+        stepText: 'first',
+        fingerprint: fp1,
+        elements: [{ ref: '0', role: 'button', name: 'A' }],
+        actions: [],
+        provider: 'p',
+        model: 'm',
+      })
+    })
+    const fp2 = makeFingerprint([{ role: 'button', name: 'B' }])
+    await loadSave(path, (c) => {
+      cacheRecord(c, {
+        key: makeCacheKey('second', fp2),
+        stepText: 'second',
+        fingerprint: fp2,
+        elements: [],
+        actions: [],
+        provider: 'p',
+        model: 'm',
+      })
+    })
+    const final = await loadCache(path)
+    assert.equal(Object.keys(final.entries).length, 2)
+    assert.ok(cacheLookup(final, 'first', fp1))
+    assert.ok(cacheLookup(final, 'second', fp2))
   })
 })

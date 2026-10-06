@@ -9,7 +9,7 @@ import {
   loadCache,
   cacheLookup,
   cacheRecord,
-  saveCache,
+  loadSave,
 } from './cache.js'
 import { makeCacheKey } from './fingerprint.js'
 
@@ -44,8 +44,11 @@ export async function runTest(testObj, opts) {
     cacheError: null,
   }
 
-  // Load the cache once before any step runs.
+  // Load the cache once before any step runs. Collect mutations for an
+  // atomic loadSave at the end — this avoids the lost-update race where two
+  // concurrent natl runs each load a stale snapshot and the last writer wins.
   let cache
+  const pendingRecords = [] // { entry } collected during the run
   try {
     cache = await loadCache(cachePath)
   } catch (err) {
@@ -134,7 +137,10 @@ export async function runTest(testObj, opts) {
             }
             await driver.act({ ...act, ref: newRef })
           }
-          cacheRecord(cache, {
+          // Defer the cache write: all records are applied atomically at the
+          // end of the run via loadSave, so concurrent runs can't clobber
+          // each other's entries (lost-update race).
+          pendingRecords.push({
             key: makeCacheKey(step.text, snap.fingerprint),
             stepText: step.text,
             fingerprint: snap.fingerprint,
@@ -217,13 +223,18 @@ export async function runTest(testObj, opts) {
     report.steps.push(entry)
   }
 
-  // Always attempt to persist the cache; a write failure is surfaced in
-  // report.cacheError but must not mask a test failure.
-  try {
-    await saveCache(cache, cachePath)
-  } catch (err) {
-    report.cacheError = describeError(err)
-    // Do not change report.ok — the test ran successfully, caching just failed.
+  // Persist via loadSave: re-read the file, re-apply only this run's new
+  // records, and save. If another process touched the file since our first
+  // load, its entries are preserved instead of being overwritten.
+  if (pendingRecords.length > 0) {
+    try {
+      await loadSave(cachePath, (c) => {
+        for (const entry of pendingRecords) cacheRecord(c, entry)
+      })
+    } catch (err) {
+      report.cacheError = describeError(err)
+      // Do not change report.ok — the test ran successfully, caching just failed.
+    }
   }
 
   return report

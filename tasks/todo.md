@@ -45,7 +45,7 @@ dengan direktori browser yang salah.
       evaluasi modul dan di-import paling awal.
 
 **Verification:**
-- [ ] `env -u PLAYWRIGHT_BROWSERS_PATH npm test` hijau.
+- [x] `env -u PLAYWRIGHT_BROWSERS_PATH node --test` hijau (116/116 saat itu).
 - [x] tidak ada path absolut mesin di file tracked (grep scoped ke `test/` kosong)
 
 **Dependencies:** None
@@ -54,8 +54,8 @@ dengan direktori browser yang salah.
 **Estimated scope:** Small
 
 ### Checkpoint: Phase 1
-- [ ] `npm test` hijau
-- [ ] Kedua bukti Task 1 dan Task 2 sudah dijalankan dan hasilnya dikutip
+- [x] `npm test` hijau
+- [x] Kedua bukti Task 1 dan Task 2 sudah dijalankan dan hasilnya dikutip
 
 ## Phase 2 — temuan auditor  [pending S1]
 
@@ -138,99 +138,52 @@ mati, path cache bertabrakan, perilaku elemen hidden tak terdokumentasi.
 **Scope:** Small
 
 ## Checkpoint akhir
-- [ ] Semua slice severity high ditutup atau punya alasan tertulis
-- [ ] `npm test` hijau di kondisi akhir
+- [x] Semua slice severity high ditutup atau punya alasan tertulis (6 auditor; 1 item
+      sengaja tidak diubah dan alasannya tertulis)
+- [x] `node --test` hijau di kondisi akhir: 136/136 pada HEAD d3b26c9
 
-## Sisa pekerjaan (state untuk round berikutnya)
+## Sisa pekerjaan (direkonsiliasi 2026-10-15, HEAD d3b26c9)
 
-Belum dikerjakan, sudah terbukti/dilaporkan auditor:
+Sudah tertutup setelah daftar lama ini ditulis: `report.js` (`summarize` dihapus +
+`test/report.test.js`), fake WebDriver bentuk New Session W3C, mutasi fixture di
+`test/e2e-web.test.js`, `init` tidak lagi menulis `capabilities.json`, elemen hidden
+terdokumentasi di README, laporan auditor docs-drift diterima, verdict cold verification
+diterima. Bukti: `b997523`, `ab941f4`, `d1fb3fb`.
 
-**High/medium yang masih terbuka**
-- [ ] `src/report.js` (renderReport/toJson/summarize) tidak punya test yang bisa gagal —
-      auditor test HIGH-2. `renderReport` bisa mencetak "PASS" untuk report gagal tanpa
-      satu test pun merah; `--report` juga tak diuji isinya.
-- [ ] Fake WebDriver mengirim respons New Session non-W3C (`{sessionId}` di top level,
-      bukan `{value:{sessionId}}`); cabang spec-compliant tak teruji — auditor test MEDIUM-3.
-- [ ] `test/e2e-web.test.js` memutasi `examples/web/fixture/index.html` yang sedang
-      dilayani `example-web.test.js` di proses paralel → false red / repo rusak bila
-      di-SIGKILL — auditor test MEDIUM-5. Fix: pakai root temp (seam `root` sudah ada).
-- [ ] Jalur "replay throws → replan + re-record" di mode auto tidak diuji; cabang
-      re-snapshot setelah replay parsial tak tersentuh — auditor test MEDIUM-4.
-- [ ] Invariant "tulis ke temp lalu rename" tak punya test yang bisa gagal — MEDIUM-6.
-- [ ] 8 invariant spec tanpa test (group-size mismatch fallback, "fail fast tanpa API
-      key", model unreachable di runner, `click('#missing')` harus gagal, shape elemen D1,
-      tool schema llm, skip `expectUrl` di mobile, entri cache lama harus tersisa).
-- [ ] `natl init` non-TTY → exit 13 + "unsettled top-level await" — auditor examples M3.
-- [x] `examples/mobile/natl.config.json` dibuat (perintah yang didokumentasikan kini
-      jalan); README-nya tidak lagi menyuruh mengedit `capabilities.json`. SISA: `init`
-      masih menulis `examples/<proj>/capabilities.json` yang tidak dibaca CLI — test
-      `test/init.test.js:86` menguncinya, jadi perubahan butuh update test itu juga.
-- [ ] Elemen hidden: `expectCount` menghitungnya dan `expectText` membacanya, tak
-      terdokumentasi, dan fixture repo tak memakainya — examples M6.
-- [x] Exit code: import test yang melempar / tanpa test object / session gagal start
-      sekarang 1; path yang tidak ada tetap 2. Test menutup ketiga cabang. (examples M4)
+**Masih terbuka di kode**
+
+- [ ] `natl init` tanpa TTY → exit 13 + "unsettled top-level await". `bin/natl.js`
+      memanggil `askQuestions(true)` tanpa memeriksa `process.stdin.isTTY`; guard-nya
+      sudah ada di `src/init.js` tetapi tidak pernah dipakai dari CLI. Ini satu-satunya
+      cacat sisa yang bisa dipicu user.
+- [ ] Jalur "replay throws → replan + re-record" di mode auto tidak punya test; cabang
+      re-snapshot setelah replay parsial di `runner.js` tak tersentuh.
+- [ ] Invariant "tulis ke temp lalu rename" tak punya test yang bisa gagal.
+- [ ] Sisa invariant spec tanpa test: group-size mismatch fallback, "fail fast tanpa API
+      key", model unreachable di level runner, `click('#missing')` harus gagal, shape
+      elemen D1, tool schema llm, skip `expectUrl` di mobile, entri cache lama tersisa.
 - [ ] `loadCache` korup menggagalkan test yang tidak punya NL step sama sekali.
+      Keputusan sadar: gagal keras dianggap lebih baik daripada diam-diam plan ulang.
+- [ ] Pesan `SELECTOR_MODES` di init lebih luas dari kenyataan — driver memang
+      mengimplementasikan strategi `xpath=` di dalam string selector.
 
-**Menunggu**
-- [ ] Laporan auditor docs-drift (diminta ulang, bentuk padat).
-- [ ] Verdict cold verification (subagent `Cold verification of claims`, 17 klaim ternary).
+**Sengaja tidak diubah**
 
-**Tidak bisa diverifikasi di mesin ini**
-- Appium/device nyata tidak ada (`appium`/`adb` tidak terpasang): seluruh driver mobile
-  = spec + fake. CI juga belum pernah jalan di runner (`--with-deps` butuh apt/root).
+- [ ] `src/drivers/mobile.js` tidak memasukkan URL ke fingerprint. Driver tidak punya URL
+      native; menambah panggilan jaringan per snapshot tanpa device untuk memverifikasi
+      lebih buruk daripada mendokumentasikannya (sudah ada di README "Known limitations"
+      dan di catatan as-built spec).
 
-**Dari cold verification (round 2)**
-- [x] Fake WebDriver kini mengirim New Session bentuk W3C (`{value:{sessionId}}`).
-      Bukti merah-terhijau: melepas penanganan bentuk bersarang → 15 dari 18 test
-      mobile gagal; sebelumnya mutasi itu tetap hijau.
-- [x] `test/e2e-web.test.js` tidak lagi memutasi fixture repo: menyajikan salinan
-      privat lewat seam `root`; md5 fixture tidak berubah setelah suite.
-- [x] `natl init` tidak lagi menulis `capabilities.json` yang tidak pernah dibaca;
-      test init meng-assert file itu memang tidak ada.
-- [x] Drift spesifikasi internal: ditambahkan bagian "As built — drift note"
-      (dependency, kontrak D1, D3, failure behaviour, invariant cache + retry 429).
-- [x] `summarize` dihapus (nol caller) + `test/report.test.js` baru mengunci
-      `renderReport` (PASS/FAIL, step ⊘, cacheError) dan `toJson` (round-trip).
-- [ ] `src/drivers/mobile.js:248` memanggil `makeFingerprint(elements)` tanpa URL —
-      dua screen berbeda dengan elemen identik berbagi cache key (web tidak kena).
-- [x] `package-lock.json` di-regenerate → `>=1.63.0 <2` di kedua tempat.
-- [ ] Pesan `SELECTOR_MODES` di init lebih luas dari kenyataan: driver memang
-      mengimplementasikan strategi xpath di dalam string selector.
-- [ ] Spesifikasi internal masih drift: kontrak D1 (snapshot mengembalikan objek, bukan
-      array; act menerima satu objek), D3 "planner dibuat lazily" (modulnya di-import
-      statis), Failure behavior "naming the missing env var", invariant cache belum
-      menyebut lock.
+**Menunggu keputusan atau infrastruktur operator**
 
-## Live run end-to-end (round 3) — TERVERIFIKASI
+- [ ] `git remote add` + push → CI pertama kali di mesin bersih. Ini menutup satu-satunya
+      klaim besar yang masih UNVERIFIABLE: semua verifikasi sesi ini berjalan di host ini
+      dengan `.browsers` yang sudah ada.
+- [ ] Publish npm — ditunda operator; sampai itu README tetap "install dari source".
+- [ ] `AGENTS.md` untracked di root repo natl. Bukan artefak repo ini, dan selama ada di
+      sini isinya ikut tersuntik sebagai instruksi workspace setiap turn.
 
-Dijalankan terhadap model sungguhan lewat 9Router (`NATL_BASE_URL` + `NATL_API_KEY`
-di `.env`, gitignored). Hasil nyata:
+**Tidak bisa diverifikasi dari host ini**
 
-- `--mode record` → `PASS login flow — modelCalls=1, recorded=1`; cache baru
-  `examples_web_login.test.js.059dfc25.json` (skema nama ber-digest).
-- Plan terekam: `[{fill, ref 1, "ada@example.com"}, {click, ref 3}]`; ref 1 = textbox
-  Email, ref 3 = button Sign In, dan semua ref ada di snapshot (8 elemen).
-- `--mode replay` → `PASS ... modelCalls=0, replayed=1`, exit 0. **Janji inti produk
-  terbukti untuk pertama kalinya.**
-- Uji negatif: cache disingkirkan → `--mode replay` gagal keras
-  `replay miss for "…": no cached plan`, exit 1 (bukan diam-diam plan ulang).
-
-Dua bug yang hanya bisa muncul di jalur nyata, keduanya sudah ditutup:
-
-1. **Parser hanya menerima tool call.** Probe langsung: model free-tier menjawab
-   HTTP 200 dengan plan BENAR tapi di `message.content` sebagai teks — persis yang
-   diminta system prompt — sementara `llm.js` hanya membaca `tool_calls[0]`. Setiap
-   jawaban begitu jadi "malformed response" lalu step gagal. Kini kedua parser
-   (OpenAI & Anthropic) menerima objek JSON di teks, termasuk yang berpagar ```json.
-2. **429 langsung fatal.** Sekarang dicoba ulang maksimal 10 percobaan
-   (`NATL_LLM_ATTEMPTS`, default 10), menghormati `Retry-After`, backoff berjitter,
-   socket dilepas sebelum menunggu; 4xx selain 429 tidak diulang. Terbukti live:
-   `rate-limited (429) — attempt 1/10, retrying in 60000ms` → run berikutnya PASS.
-
-Catatan lingkungan: proses latar `node examples/web/server.mjs` (job `bash-2217`)
-masih hidup di port 4173; `.env` berakhiran CRLF dan sudah dinormalkan.
-Model `ds/deepseek-v4-flash` memakai tool call dengan benar (probe: `tool_calls: True`).
-- [ ] SENGAJA TIDAK DIUBAH: `src/drivers/mobile.js` tidak memasukkan URL ke fingerprint
-      (driver tidak punya URL native). Menambah panggilan jaringan per snapshot tanpa
-      device nyata untuk memverifikasi lebih buruk daripada mendokumentasikannya —
-      sudah tercatat di README (Known limitations) dan di catatan as-built spec.
+- Driver mobile terhadap Appium nyata (`appium`/`adb` tidak terpasang).
+- Runtime playwright 1.64 (revisi browser tidak tersedia di sini).

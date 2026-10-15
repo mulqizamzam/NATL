@@ -169,18 +169,23 @@ src/steps.js      — step DSL constructors
 src/planner.js    — NL step → action list via LLM tool-calling
 src/prompt.js     — system + user prompt builder
 src/llm.js        — provider table + HTTP callModel
-src/cache.js      — on-disk plan cache (atomic writes)
+src/http.js       — fetch with a deadline (no request may hang the CLI)
+src/cache.js      — on-disk plan cache (lock file + atomic rename)
 src/fingerprint.js — sha256 helpers for key + fingerprint
 src/errors.js     — NatlError + utils
-src/drivers/web.js   — Playwright driver (ariaSnapshotJSON)
+src/init.js       — setup wizard (`natl init`)
+src/drivers/web.js   — Playwright driver (ariaSnapshotJSON, >= 1.63.0)
 src/drivers/mobile.js — Appium W3C driver (raw HTTP over fetch)
 examples/web/server.mjs   — static file server for the web example
 examples/web/fixture/index.html — login fixture
 examples/mobile/README.md   — mobile setup docs
 ```
 
-The dependency count is one (`playwright`). The mobile driver speaks WebDriver
-over plain `fetch`; no `webdriverio` or `selenium-webdriver` is used.
+There is no runtime dependency: the mobile driver speaks WebDriver over plain
+`fetch`, and the planner speaks provider chat-completions over `fetch`, so no
+vendor SDK is needed. `playwright` is an optional peer, required only for web
+tests (install it in your project: `npm i -D playwright`); it needs >= 1.63.0
+because the driver builds its element list from `page.ariaSnapshotJSON()`.
 
 ## Debugging
 

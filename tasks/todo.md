@@ -187,7 +187,15 @@ diterima. Bukti: `b997523`, `ab941f4`, `d1fb3fb`.
       gagal, 7 di antaranya `duration_ms: 0` alias tidak pernah jalan). Diperbaiki dengan
       guard timer; diverifikasi 137/137 di Node 20.19.0, 22.23.3, dan 24.19.0. CI kedua
       **hijau** di kedua leg. Pelajaran: matrix versi Node membayar dirinya sendiri.
-- [ ] Publish npm — ditunda operator; sampai itu README tetap "install dari source".
+- [ ] **Publish npm — DITUNDA operator (2026-10-15).** Semua sudah siap dan
+      `npm publish --dry-run` lulus (`+ natl@0.1.0`, 24 file, 39 kB; nama `natl`
+      masih 404 alias bebas). Penghalang tunggal: kredensial npm tidak ada di mesin
+      ini (`~/.npmrc` tidak ada, `whoami` → ENEEDAUTH). Cara membuka:
+      (a) `npm login`, atau (b) isi token Classic/Automation ke `.natl/tmp/npmrc`
+      (gitignored), lalu
+      `npm publish --userconfig .natl/tmp/npmrc --cache .natl/tmp/npmcache`.
+      Segera setelah terbit: paragraf README "The package is not on npm yet" jadi
+      tidak benar dan harus diubah + di-push.
 - [ ] `AGENTS.md` untracked di root repo natl. Bukan artefak repo ini, dan selama ada di
       sini isinya ikut tersuntik sebagai instruksi workspace setiap turn.
 

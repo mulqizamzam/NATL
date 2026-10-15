@@ -6,10 +6,17 @@ and assertions.
 
 ## Installation
 
+The package is not on npm yet, so install it from its source:
+
 ```bash
 cd <your-project>
+npm install --save-dev /path/to/natl     # or `npm i -D natl` once published
 npx natl init
 ```
+
+Installing it matters: the CLI is `bin/natl.js` inside the package, so without
+the package there is no `natl` command to run. `npx natl init` on its own only
+works once the package is published to a registry.
 
 `natl init` asks for the app type, model provider, and model name, then writes:
 
@@ -30,10 +37,10 @@ export OPENAI_API_KEY=sk-...
 export ANTHROPIC_API_KEY=sk-...
 
 # 2. Run the starter test (first run: plans and records)
-node bin/natl.js run examples/<project>/<project>.test.js
+npx natl run examples/<project>/<project>.test.js
 
 # 3. Run again (replay: zero model calls)
-node bin/natl.js run examples/<project>/<project>.test.js
+npx natl run examples/<project>/<project>.test.js
 ```
 
 The second run prints `modelCalls=0` and `replayed=1` if the page has not
@@ -155,7 +162,7 @@ This host is Linux with no Java, no `adb`, and no `/dev/kvm`. iOS (XCUITest)
 requires macOS + Xcode — a hard blocker that cannot be worked around here.
 Android can run on this host but requires the Android SDK, `adb`, and KVM.
 The mobile driver is exercised against a fake WebDriver server in
-`test/drivers/mobile.test.js` (13 tests, all passing), which proves the
+`test/drivers/mobile.test.js`, which proves the
 request shapes, XML parsing, and action dispatch. A real-device run must be
 executed on a host that has those tools.
 
@@ -199,6 +206,20 @@ because the driver builds its element list from `page.ariaSnapshotJSON()`.
 
 ## Known limitations
 
+- **`goto` is web-only.** The mobile driver throws `goto is not supported for
+  the mobile driver`; an Appium session is already on a screen.
+- **`expectUrl` is silently skipped on mobile.** The mobile driver exposes no
+  `url()`, so the step is reported as `⊘ skip` and the run still exits 0. It is
+  not a passing assertion — do not rely on it on mobile.
+- **Hidden elements are counted and read.** `expectCount` uses
+  `locator.count()` and `expectText` reads `innerText()`, with no visibility
+  filter, so `display:none` elements count. There is no visible-only variant.
+- **The cache is per test file and never pruned.** Each file gets its own
+  `<cacheDir>/<file>.<digest>.json` keyed by step text + page fingerprint;
+  entries are kept forever. Delete the file to force a fresh record.
+- **Mobile fingerprints carry no URL.** The web fingerprint hashes the page URL
+  together with the elements, so two screens with the same elements differ; the
+  mobile driver has no URL to hash, so two such screens share a cache key.
 - **English-only.** The prompt is written in English; non-English test authors
   should write their `step()` texts in English.
 - **No parallel execution.** Tests run sequentially. Adding a test runner

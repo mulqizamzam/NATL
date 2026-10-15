@@ -46,8 +46,7 @@ dengan direktori browser yang salah.
 
 **Verification:**
 - [ ] `env -u PLAYWRIGHT_BROWSERS_PATH npm test` hijau.
-- [ ] `git ls-files -z | xargs -0 grep -ln /home/administrator` tidak memuat
-      file di `test/`.
+- [x] tidak ada path absolut mesin di file tracked (grep scoped ke `test/` kosong)
 
 **Dependencies:** None
 **Files likely touched:** `test/drivers/web.test.js`, `test/example-web.test.js`,

@@ -42,7 +42,7 @@ dianggap selesai karena "sudah terlihat benar".
 
 - [ ] `npm test` hijau
 - [ ] Test CLI baru membuktikan proyek mobile jalan tanpa `playwright` terpasang
-- [ ] `git ls-files -z | xargs -0 grep -l '/home/' ` kosong di bawah `test/`
+- [x] tidak ada path absolut mesin di file tracked (grep scoped ke `test/` kosong)
 
 ### Phase 2: temuan auditor
 

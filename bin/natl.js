@@ -57,6 +57,18 @@ function die(msg) {
   throw new UsageExit(2, msg)
 }
 
+/**
+ * Exit 1: the invocation was fine, the test or its environment was not.
+ *
+ * A broken test file and an environment that cannot start a session are test
+ * failures, not usage errors — CI reads the code to tell "you typed the command
+ * wrong" apart from "the build is red", and every error raised inside run()
+ * used to land in the usage bucket.
+ */
+function fail(msg) {
+  throw new UsageExit(1, msg)
+}
+
 function exitWith(code, message) {
   if (message) console.error(`natl: ${message}`)
   process.exit(code)
@@ -93,10 +105,22 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
     // resolve(), not join(): join(cwd, '/abs/path') yields cwd + '/abs/path', so the
     // absolute path `natl init` prints in its own next-step hint never loaded.
     const modUrl = file.startsWith('file://') ? file : `file://${resolve(process.cwd(), file)}`
-    const mod = await import(modUrl)
+    let mod
+    try {
+      mod = await import(modUrl)
+    } catch (err) {
+      // A path that does not exist is the caller's mistake (2). A file that
+      // exists but throws on import is a broken test (1) — including when what
+      // it cannot find is a package it forgot to install.
+      const resolved = resolve(process.cwd(), file)
+      if (err?.code === 'ERR_MODULE_NOT_FOUND' && String(err.message).includes(resolved)) {
+        die(`test file not found: ${file}`)
+      }
+      fail(`test file ${file} failed to load: ${err?.message ?? String(err)}`)
+    }
     const testObj = mod.default ?? Object.values(mod).find((v) => v?.kind === 'test')
     if (!testObj || testObj.kind !== 'test') {
-      die(`no test object found in ${file}`)
+      fail(`no test object found in ${file} — export test(name, [ ... ])`)
     }
 
     if (appType === 'mobile') {
@@ -128,7 +152,13 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
       })
     }
 
-    await driver.open()
+    try {
+      await driver.open()
+    } catch (err) {
+      // No browser binary, no Appium server, a bad capabilities set: the test
+      // could not run, which is a failing run (1), not a usage error.
+      fail(`could not start the ${appType} session: ${err?.message ?? String(err)}`)
+    }
 
     // Provider config: CLI flag wins, then config file, then env.
     // baseUrl: cfg.baseUrl (from natl.config.json) → NATL_BASE_URL env → undefined.

@@ -119,8 +119,10 @@ Modes:
 
 Exit codes:
 - `0` — all tests passed
-- `1` — one or more tests failed
-- `2` — usage error (missing config, bad flag, missing test file)
+- `1` — the test failed, or it could not run at all: a broken test file, a
+  provider/driver error, or a browser/Appium session that would not start
+- `2` — usage error (bad command or flag, missing/malformed config, missing
+  test file path)
 
 ## Provider table
 

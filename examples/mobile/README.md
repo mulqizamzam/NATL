@@ -7,7 +7,9 @@ This example drives a real mobile app through Appium. Unlike the web example, it
 ## Files
 
 - `login.test.js` — the test itself. One plain-English step plus deterministic assertions.
-- `capabilities.json` — W3C capabilities for the Appium session. Copy and edit it.
+- `natl.config.json` — the Appium server URL and the W3C capabilities for
+  the session. Copy and edit it: the CLI reads capabilities from here, never
+  from a separate file.
 
 ## The test
 
@@ -41,7 +43,7 @@ Appium 3 requires Node `^20.19.0 || ^22.12.0 || >=24.0.0`. The default port is
 
 ### 2. Provide an app and a device
 
-Edit `capabilities.json`:
+Edit `mobile.capabilities` in `natl.config.json`:
 
 ```json
 {

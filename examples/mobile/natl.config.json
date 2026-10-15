@@ -1,0 +1,18 @@
+{
+  "appType": "mobile",
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "cacheDir": ".natl/cache",
+  "mobile": {
+    "server": "http://127.0.0.1:4723",
+    "capabilities": {
+      "platformName": "Android",
+      "appium:automationName": "UiAutomator2",
+      "appium:app": "/absolute/path/to/app.apk",
+      "appium:deviceName": "Android Emulator"
+    },
+    "selectors": {
+      "mode": "auto"
+    }
+  }
+}

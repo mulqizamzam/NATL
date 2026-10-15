@@ -158,3 +158,33 @@ test('exit code contract: 2 on a usage error', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('exit code contract: a broken test file is a failure (1), not usage (2)', async () => {
+  // CI reads the code to tell "you typed the command wrong" from "the build is
+  // red". Every error inside run() used to land in the usage bucket.
+  const dir = await throwawayProject()
+  try {
+    await writeFile(
+      join(dir, 'natl.config.json'),
+      JSON.stringify({ appType: 'mobile', provider: 'openai', model: 'gpt-4o', mobile: { server: 'http://127.0.0.1:9' } }),
+      'utf8',
+    )
+
+    await writeFile(join(dir, 'throws.test.js'), "throw new Error('boom at import time')\n", 'utf8')
+    const thrown = await runCli(['run', 'throws.test.js'], dir)
+    assert.equal(thrown.code, 1, `a test file that throws must exit 1: ${thrown.all}`)
+    assert.match(thrown.all, /failed to load/)
+
+    // A path that does not exist is still the caller's mistake.
+    const missing = await runCli(['run', 'nope.test.js'], dir)
+    assert.equal(missing.code, 2, `a missing test file must exit 2: ${missing.all}`)
+    assert.match(missing.all, /test file not found/)
+
+    await writeFile(join(dir, 'notatest.test.js'), "export const nothing = 1\n", 'utf8')
+    const noTest = await runCli(['run', 'notatest.test.js'], dir)
+    assert.equal(noTest.code, 1, `a file with no test object must exit 1: ${noTest.all}`)
+    assert.match(noTest.all, /no test object/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

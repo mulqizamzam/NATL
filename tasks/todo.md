@@ -161,12 +161,14 @@ Belum dikerjakan, sudah terbukti/dilaporkan auditor:
       key", model unreachable di runner, `click('#missing')` harus gagal, shape elemen D1,
       tool schema llm, skip `expectUrl` di mobile, entri cache lama harus tersisa).
 - [ ] `natl init` non-TTY → exit 13 + "unsettled top-level await" — auditor examples M3.
-- [ ] `examples/mobile/README.md` menyebut `natl.config.json` + `capabilities.json` yang
-      tidak ada; `capabilities.json` juga tidak pernah dibaca CLI — examples M1/M2.
+- [x] `examples/mobile/natl.config.json` dibuat (perintah yang didokumentasikan kini
+      jalan); README-nya tidak lagi menyuruh mengedit `capabilities.json`. SISA: `init`
+      masih menulis `examples/<proj>/capabilities.json` yang tidak dibaca CLI — test
+      `test/init.test.js:86` menguncinya, jadi perubahan butuh update test itu juga.
 - [ ] Elemen hidden: `expectCount` menghitungnya dan `expectText` membacanya, tak
       terdokumentasi, dan fixture repo tak memakainya — examples M6.
-- [ ] Exit code: import test yang melempar → 2 (harusnya 1); error runtime (browser
-      launch, provider) juga di-classify 2 — examples M4.
+- [x] Exit code: import test yang melempar / tanpa test object / session gagal start
+      sekarang 1; path yang tidak ada tetap 2. Test menutup ketiga cabang. (examples M4)
 - [ ] `loadCache` korup menggagalkan test yang tidak punya NL step sama sekali.
 
 **Menunggu**
@@ -176,3 +178,17 @@ Belum dikerjakan, sudah terbukti/dilaporkan auditor:
 **Tidak bisa diverifikasi di mesin ini**
 - Appium/device nyata tidak ada (`appium`/`adb` tidak terpasang): seluruh driver mobile
   = spec + fake. CI juga belum pernah jalan di runner (`--with-deps` butuh apt/root).
+
+**Dari cold verification (round 2)**
+- [ ] `summarize` di `src/report.js` nol caller = dead code; `toJson`/`summarize` tak
+      terkonstrain test (mutasi keduanya → suite tetap hijau). `renderReport` TERKONSTRAIN
+      (mutasi selalu-PASS → `test/cli.test.js` merah).
+- [ ] `src/drivers/mobile.js:248` memanggil `makeFingerprint(elements)` tanpa URL —
+      dua screen berbeda dengan elemen identik berbagi cache key (web tidak kena).
+- [ ] `package-lock.json` masih mencatat `playwright: ^1.50.0` vs package.json `>=1.63.0 <2`.
+- [ ] Pesan `SELECTOR_MODES` di init lebih luas dari kenyataan: driver memang
+      mengimplementasikan strategi xpath di dalam string selector.
+- [ ] Spesifikasi internal masih drift: kontrak D1 (snapshot mengembalikan objek, bukan
+      array; act menerima satu objek), D3 "planner dibuat lazily" (modulnya di-import
+      statis), Failure behavior "naming the missing env var", invariant cache belum
+      menyebut lock.

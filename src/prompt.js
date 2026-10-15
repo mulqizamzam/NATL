@@ -9,7 +9,8 @@ const TOOL_DEF =
 
 const SYSTEM_PROMPT = `You are a browser-testing agent. Given an instruction and a page snapshot, plan the exact sequence of actions to accomplish it.
 
-Return a JSON object with one field: "actions", an array of action objects.
+Call the natl_plan tool with the plan. If you answer with text instead, reply
+with only a JSON object with one field: "actions", an array of action objects.
 ${TOOL_DEF}
 
 Always include the ref of each target element. Use the correct action type for the intent.

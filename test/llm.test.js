@@ -270,3 +270,144 @@ test('a provider that never responds is a timeout error, not a hang', async () =
     globalThis.fetch = prevFetch
   }
 })
+
+// ---------------------------------------------------------------------------
+// a plan delivered as text rather than a tool call
+// ---------------------------------------------------------------------------
+
+function stubBody(body, status = 200) {
+  globalThis.fetch = async () => new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+const PLAN = { actions: [{ action: 'fill', ref: '0', value: 'ada@example.com' }, { action: 'click', ref: '1' }] }
+
+test('a plan returned as JSON text in content is accepted (openai shape)', async () => {
+  // Measured against a real OpenAI-compatible router: the model produced a
+  // correct plan in message.content instead of calling the tool, because the
+  // system prompt asks for exactly that. Only tool_calls was parsed, so every
+  // such reply failed as "malformed response".
+  const prev = globalThis.fetch
+  try {
+    stubBody({ choices: [{ message: { role: 'assistant', content: JSON.stringify(PLAN) } }] })
+    const { parsed } = await callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' })
+    assert.deepEqual(parsed, PLAN)
+  } finally {
+    globalThis.fetch = prev
+  }
+})
+
+test('a fenced JSON plan in content is accepted', async () => {
+  const prev = globalThis.fetch
+  try {
+    stubBody({ choices: [{ message: { content: '```json\n' + JSON.stringify(PLAN) + '\n```' } }] })
+    const { parsed } = await callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' })
+    assert.deepEqual(parsed, PLAN)
+  } finally {
+    globalThis.fetch = prev
+  }
+})
+
+test('a plan returned as a text block is accepted (anthropic shape)', async () => {
+  const prev = globalThis.fetch
+  try {
+    stubBody({ content: [{ type: 'text', text: JSON.stringify(PLAN) }] })
+    const { parsed } = await callModel({ provider: 'anthropic', model: 'claude-3-5-haiku', apiKey: 'k', system: 's', user: 'u' })
+    assert.deepEqual(parsed, PLAN)
+  } finally {
+    globalThis.fetch = prev
+  }
+})
+
+test('content that is not a JSON object still reports a malformed response', async () => {
+  const prev = globalThis.fetch
+  try {
+    stubBody({ choices: [{ message: { content: 'I could not find that element, sorry.' } }] })
+    await assert.rejects(
+      () => callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' }),
+      (err) => err instanceof NatlError && /malformed response/.test(err.message),
+    )
+    stubBody({ choices: [{ message: { content: '{"actions": not json}' } }] })
+    await assert.rejects(
+      () => callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' }),
+      (err) => err instanceof NatlError && /malformed response/.test(err.message),
+    )
+  } finally {
+    globalThis.fetch = prev
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 429 retry
+// ---------------------------------------------------------------------------
+
+/** Stub fetch with a scripted sequence of statuses; counts the calls. */
+function stubStatuses(statuses, body = {}) {
+  const calls = []
+  globalThis.fetch = async () => {
+    const status = statuses[Math.min(calls.length, statuses.length - 1)]
+    calls.push(status)
+    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+  }
+  return calls
+}
+
+async function withRetryEnv(fn) {
+  const prev = { max: process.env.NATL_LLM_ATTEMPTS, base: process.env.NATL_LLM_RETRY_BASE_MS, fetch: globalThis.fetch }
+  process.env.NATL_LLM_ATTEMPTS = '3'
+  process.env.NATL_LLM_RETRY_BASE_MS = '0'
+  try {
+    return await fn()
+  } finally {
+    for (const [k, v] of [['NATL_LLM_ATTEMPTS', prev.max], ['NATL_LLM_RETRY_BASE_MS', prev.base]]) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    globalThis.fetch = prev.fetch
+  }
+}
+
+const OK_BODY = { choices: [{ message: { tool_calls: [{ function: { name: 'natl_plan', arguments: JSON.stringify(PLAN) } }] } }] }
+
+test('a 429 is retried and the next success is used', async () => {
+  await withRetryEnv(async () => {
+    const calls = []
+    let n = 0
+    globalThis.fetch = async () => {
+      n += 1
+      calls.push(n)
+      const status = n < 3 ? 429 : 200
+      return new Response(JSON.stringify(status === 200 ? OK_BODY : { error: 'rate limited' }), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    const { parsed } = await callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' })
+    assert.deepEqual(parsed, PLAN)
+    assert.equal(calls.length, 3, 'two 429s then a success means three attempts')
+  })
+})
+
+test('429 retries are bounded: the configured attempt count is the limit', async () => {
+  await withRetryEnv(async () => {
+    const calls = stubStatuses([429], { error: 'rate limited' })
+    await assert.rejects(
+      () => callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' }),
+      (err) => err instanceof NatlError && /HTTP 429/.test(err.message),
+    )
+    assert.equal(calls.length, 3, 'NATL_LLM_ATTEMPTS=3 must mean exactly three attempts')
+  })
+})
+
+test('only 429 is retried: a 400 is reported immediately', async () => {
+  await withRetryEnv(async () => {
+    const calls = stubStatuses([400], { error: 'bad request' })
+    await assert.rejects(
+      () => callModel({ provider: 'openai', model: 'gpt-4o', apiKey: 'k', system: 's', user: 'u' }),
+      (err) => err instanceof NatlError && /HTTP 400/.test(err.message),
+    )
+    assert.equal(calls.length, 1, 'a 400 will not improve by asking again')
+  })
+})

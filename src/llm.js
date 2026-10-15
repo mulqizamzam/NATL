@@ -7,7 +7,7 @@
  */
 
 import { NatlError } from './errors.js'
-import { fetchWithTimeout, llmTimeoutMs } from './http.js'
+import { fetchWithRetry, llmTimeoutMs } from './http.js'
 
 // Single source of truth for provider base URLs. Exported so init.js does not
 // duplicate the table — a second copy would silently drift from this one.
@@ -150,6 +150,34 @@ function buildOpenAIBody(system, userMessage, model) {
 }
 
 /**
+ * Recover a plan the model delivered as text instead of a tool call.
+ *
+ * Measured against a real OpenAI-compatible router: the model returned a
+ * correct plan in `message.content` as JSON rather than calling `natl_plan` —
+ * which is what the system prompt asks for ("Return only the JSON object").
+ * The text form is a shape we requested, not a protocol violation, but only
+ * `tool_calls` was parsed, so every such reply became "malformed response" and
+ * the step failed with a plan that was already correct.
+ *
+ * Returns null when the text is not a JSON object, so the caller still reports
+ * a genuinely unusable reply.
+ */
+function parsePlanFromText(text) {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trim()
+  // Models still fence the JSON sometimes, whatever the prompt says.
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+  const candidate = (fenced ? fenced[1] : trimmed).trim()
+  if (!candidate.startsWith('{')) return null
+  try {
+    const parsed = JSON.parse(candidate)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Parse an OpenAI-shaped response into { raw, parsed }.
  */
 function parseOpenAIResponse(raw, provider) {
@@ -164,6 +192,8 @@ function parseOpenAIResponse(raw, provider) {
 
   const tc = json?.choices?.[0]?.message?.tool_calls?.[0]
   if (!tc || !tc.function) {
+    const fromText = parsePlanFromText(json?.choices?.[0]?.message?.content)
+    if (fromText) return { raw, parsed: fromText }
     throw new NatlError(
       `malformed response from ${provider}: ${raw.slice(0, 500)}`,
     )
@@ -197,6 +227,13 @@ function parseAnthropicResponse(raw, provider) {
 
   const tu = json?.content?.find((c) => c.type === 'tool_use')
   if (!tu || !tu.input) {
+    // Same fallback as the OpenAI path: a text answer carrying the plan.
+    const text = (json?.content ?? [])
+      .filter((c) => c?.type === 'text')
+      .map((c) => c.text)
+      .join('\n')
+    const fromText = parsePlanFromText(text)
+    if (fromText) return { raw, parsed: fromText }
     throw new NatlError(
       `malformed response from ${provider}: ${raw.slice(0, 500)}`,
     )
@@ -245,7 +282,7 @@ export async function callModel({
       'anthropic-version': '2023-06-01',
       [def.authHeader]: apiKey,
     }
-    const resp = await fetchWithTimeout(
+    const resp = await fetchWithRetry(
       url,
       { method: 'POST', headers, body: JSON.stringify(body) },
       { timeoutMs: llmTimeoutMs(), label: `request to ${provider}` },
@@ -267,7 +304,7 @@ export async function callModel({
       ? `${def.authScheme} ${apiKey}`
       : apiKey
   }
-  const resp = await fetchWithTimeout(
+  const resp = await fetchWithRetry(
     url,
     { method: 'POST', headers, body: JSON.stringify(body) },
     { timeoutMs: llmTimeoutMs(), label: `request to ${provider}` },

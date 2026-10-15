@@ -192,3 +192,33 @@ Belum dikerjakan, sudah terbukti/dilaporkan auditor:
       array; act menerima satu objek), D3 "planner dibuat lazily" (modulnya di-import
       statis), Failure behavior "naming the missing env var", invariant cache belum
       menyebut lock.
+
+## Live run end-to-end (round 3) — TERVERIFIKASI
+
+Dijalankan terhadap model sungguhan lewat 9Router (`NATL_BASE_URL` + `NATL_API_KEY`
+di `.env`, gitignored). Hasil nyata:
+
+- `--mode record` → `PASS login flow — modelCalls=1, recorded=1`; cache baru
+  `examples_web_login.test.js.059dfc25.json` (skema nama ber-digest).
+- Plan terekam: `[{fill, ref 1, "ada@example.com"}, {click, ref 3}]`; ref 1 = textbox
+  Email, ref 3 = button Sign In, dan semua ref ada di snapshot (8 elemen).
+- `--mode replay` → `PASS ... modelCalls=0, replayed=1`, exit 0. **Janji inti produk
+  terbukti untuk pertama kalinya.**
+- Uji negatif: cache disingkirkan → `--mode replay` gagal keras
+  `replay miss for "…": no cached plan`, exit 1 (bukan diam-diam plan ulang).
+
+Dua bug yang hanya bisa muncul di jalur nyata, keduanya sudah ditutup:
+
+1. **Parser hanya menerima tool call.** Probe langsung: model free-tier menjawab
+   HTTP 200 dengan plan BENAR tapi di `message.content` sebagai teks — persis yang
+   diminta system prompt — sementara `llm.js` hanya membaca `tool_calls[0]`. Setiap
+   jawaban begitu jadi "malformed response" lalu step gagal. Kini kedua parser
+   (OpenAI & Anthropic) menerima objek JSON di teks, termasuk yang berpagar ```json.
+2. **429 langsung fatal.** Sekarang dicoba ulang maksimal 10 percobaan
+   (`NATL_LLM_ATTEMPTS`, default 10), menghormati `Retry-After`, backoff berjitter,
+   socket dilepas sebelum menunggu; 4xx selain 429 tidak diulang. Terbukti live:
+   `rate-limited (429) — attempt 1/10, retrying in 60000ms` → run berikutnya PASS.
+
+Catatan lingkungan: proses latar `node examples/web/server.mjs` (job `bash-2217`)
+masih hidup di port 4173; `.env` berakhiran CRLF dan sudah dinormalkan.
+Model `ds/deepseek-v4-flash` memakai tool call dengan benar (probe: `tool_calls: True`).

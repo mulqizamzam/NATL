@@ -27,6 +27,58 @@ export const webdriverTimeoutMs = () => envTimeout('NATL_WD_TIMEOUT_MS', DEFAULT
 // aborts its own signal throws AbortError. Both are deadlines, not wire faults.
 const isTimeout = (err) => err?.name === 'TimeoutError' || err?.name === 'AbortError'
 
+/** Attempts in total, not retries: 10 means the first try plus 9 retries. */
+export const DEFAULT_LLM_ATTEMPTS = 10
+
+const envNumber = (name, fallback, min) => {
+  const n = Number(process.env[name])
+  return Number.isFinite(n) && n >= min ? n : fallback
+}
+
+export const llmAttempts = () => Math.floor(envNumber('NATL_LLM_ATTEMPTS', DEFAULT_LLM_ATTEMPTS, 1))
+const retryBaseMs = () => envNumber('NATL_LLM_RETRY_BASE_MS', 500, 0)
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * A rate-limited provider is a "come back later", not a failed test — but only
+ * for a bounded number of tries, and never for any other 4xx (a 401 or a 400
+ * will answer the same way forever).
+ *
+ * `Retry-After` is honoured when the provider sends it, otherwise the wait
+ * doubles per attempt and is capped, with jitter so parallel runs do not all
+ * come back at the same instant.
+ */
+export async function fetchWithRetry(url, init, { timeoutMs, label, attempts }) {
+  const max = attempts ?? llmAttempts()
+  for (let attempt = 1; ; attempt++) {
+    const resp = await fetchWithTimeout(url, init, { timeoutMs, label })
+    if (resp.status !== 429 || attempt >= max) return resp
+    const wait = retryAfterMs(resp.headers) ?? backoffMs(attempt)
+    // Release the socket before waiting, or a retry storm leaks connections.
+    await resp.body?.cancel().catch(() => {})
+    process.stderr.write(
+      `natl: ${label} rate-limited (429) — attempt ${attempt}/${max}, retrying in ${Math.round(wait)}ms\n`,
+    )
+    await sleep(wait)
+  }
+}
+
+function retryAfterMs(headers) {
+  const raw = headers?.get?.('retry-after')
+  if (!raw) return null
+  const seconds = Number(raw)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60_000)
+  const when = Date.parse(raw)
+  if (Number.isFinite(when)) return Math.max(0, Math.min(when - Date.now(), 60_000))
+  return null
+}
+
+function backoffMs(attempt) {
+  const capped = Math.min(retryBaseMs() * 2 ** (attempt - 1), 30_000)
+  return capped + Math.random() * 250
+}
+
 /**
  * fetch() that fails loudly instead of hanging.
  *

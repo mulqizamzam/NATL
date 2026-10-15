@@ -180,12 +180,20 @@ Belum dikerjakan, sudah terbukti/dilaporkan auditor:
   = spec + fake. CI juga belum pernah jalan di runner (`--with-deps` butuh apt/root).
 
 **Dari cold verification (round 2)**
-- [ ] `summarize` di `src/report.js` nol caller = dead code; `toJson`/`summarize` tak
-      terkonstrain test (mutasi keduanya → suite tetap hijau). `renderReport` TERKONSTRAIN
-      (mutasi selalu-PASS → `test/cli.test.js` merah).
+- [x] Fake WebDriver kini mengirim New Session bentuk W3C (`{value:{sessionId}}`).
+      Bukti merah-terhijau: melepas penanganan bentuk bersarang → 15 dari 18 test
+      mobile gagal; sebelumnya mutasi itu tetap hijau.
+- [x] `test/e2e-web.test.js` tidak lagi memutasi fixture repo: menyajikan salinan
+      privat lewat seam `root`; md5 fixture tidak berubah setelah suite.
+- [x] `natl init` tidak lagi menulis `capabilities.json` yang tidak pernah dibaca;
+      test init meng-assert file itu memang tidak ada.
+- [x] Drift spesifikasi internal: ditambahkan bagian "As built — drift note"
+      (dependency, kontrak D1, D3, failure behaviour, invariant cache + retry 429).
+- [x] `summarize` dihapus (nol caller) + `test/report.test.js` baru mengunci
+      `renderReport` (PASS/FAIL, step ⊘, cacheError) dan `toJson` (round-trip).
 - [ ] `src/drivers/mobile.js:248` memanggil `makeFingerprint(elements)` tanpa URL —
       dua screen berbeda dengan elemen identik berbagi cache key (web tidak kena).
-- [ ] `package-lock.json` masih mencatat `playwright: ^1.50.0` vs package.json `>=1.63.0 <2`.
+- [x] `package-lock.json` di-regenerate → `>=1.63.0 <2` di kedua tempat.
 - [ ] Pesan `SELECTOR_MODES` di init lebih luas dari kenyataan: driver memang
       mengimplementasikan strategi xpath di dalam string selector.
 - [ ] Spesifikasi internal masih drift: kontrak D1 (snapshot mengembalikan objek, bukan
@@ -222,3 +230,7 @@ Dua bug yang hanya bisa muncul di jalur nyata, keduanya sudah ditutup:
 Catatan lingkungan: proses latar `node examples/web/server.mjs` (job `bash-2217`)
 masih hidup di port 4173; `.env` berakhiran CRLF dan sudah dinormalkan.
 Model `ds/deepseek-v4-flash` memakai tool call dengan benar (probe: `tool_calls: True`).
+- [ ] SENGAJA TIDAK DIUBAH: `src/drivers/mobile.js` tidak memasukkan URL ke fingerprint
+      (driver tidak punya URL native). Menambah panggilan jaringan per snapshot tanpa
+      device nyata untuk memverifikasi lebih buruk daripada mendokumentasikannya —
+      sudah tercatat di README (Known limitations) dan di catatan as-built spec.

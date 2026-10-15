@@ -1,0 +1,36 @@
+# There was no CI at all, and `npm ci` does not download browsers — the suite
+# launches a real Chromium. Playwright writes browsers to
+# PLAYWRIGHT_BROWSERS_PATH, so the install step and the suite must agree on the
+# same value or every browser test fails with "Executable doesn't exist".
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install the browser the suite launches
+        run: npx playwright install --with-deps chromium-headless-shell
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.browsers
+
+      - name: Test
+        run: npm test
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.browsers

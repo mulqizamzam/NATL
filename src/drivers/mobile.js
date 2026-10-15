@@ -1,4 +1,4 @@
-import { NatlError } from '../errors.js'
+import { NatlError, isNatlError } from '../errors.js'
 import { fetchWithTimeout, webdriverTimeoutMs } from '../http.js'
 import { makeFingerprint } from '../fingerprint.js'
 
@@ -14,10 +14,29 @@ const WAIT_INTERVAL_MS = 200
 async function request(method, url, body) {
   const init = { method, headers: { 'Content-Type': 'application/json' } }
   if (body !== undefined) init.body = JSON.stringify(body)
-  const resp = await fetchWithTimeout(url, init, {
-    timeoutMs: webdriverTimeoutMs(),
-    label: `WebDriver ${method} ${url}`,
-  })
+  let resp
+  try {
+    resp = await fetchWithTimeout(url, init, {
+      timeoutMs: webdriverTimeoutMs(),
+      label: `WebDriver ${method} ${url}`,
+    })
+  } catch (err) {
+    // A wrong server URL or a stopped Appium surfaced as a bare "fetch failed",
+    // which names neither the server nor the cause.
+    if (isNatlError(err)) throw err
+    // `server` is a closure of createMobileDriver, not visible here, so name the
+    // origin of the URL this call was made against.
+    let origin = url
+    try {
+      origin = new URL(url).origin
+    } catch {
+      // keep the raw URL
+    }
+    throw new NatlError(`cannot reach the Appium server at ${origin}: ${err?.message ?? err}`, {
+      url,
+      cause: err?.cause?.code ?? err?.code,
+    })
+  }
   if (!resp.ok) {
     // The W3C error body carries the machine-readable code, and 404 alone does
     // not say why: "no such element" is an expected outcome, while "invalid

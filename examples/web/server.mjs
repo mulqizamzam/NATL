@@ -10,8 +10,8 @@
  * the listening address.
  */
 import { createServer } from 'node:http'
-import { readFileSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_PORT = 4173
@@ -34,50 +34,83 @@ const EXT_TYPES = Object.freeze({
  * @param {number} [options.port] - listen port; 0 = ephemeral
  * @returns {Promise<{server: import('node:http').Server, port: number}>}
  */
-export function startServer({ port = DEFAULT_PORT } = {}) {
-  const root = resolve(dirname(fileURLToPath(import.meta.url)), 'fixture')
+export function startServer({ port = DEFAULT_PORT, root: rootDir } = {}) {
+  // `root` is injectable so a test can exercise containment against its own
+  // temp tree instead of mutating the fixture the example serves.
+  const root = rootDir
+    ? resolve(rootDir)
+    : resolve(dirname(fileURLToPath(import.meta.url)), 'fixture')
+  // Compare real paths: the string containment check below cannot see a symlink
+  // inside the fixture root, and readFileSync follows links.
+  const realRoot = realpathSync(root)
 
   const server = createServer((req, res) => {
-    if (req.method !== 'GET') {
-      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end('Method Not Allowed')
-      return
-    }
-
-    let localPath = (req.url ?? '/').split('?')[0]
-    if (localPath === '/' || localPath === '') localPath = '/index.html'
-
-    // Resolve and verify the path stays inside the fixture root.
-    const target = resolve(root, localPath.replace(/^\//, ''))
-    if (!target.startsWith(root + '/') && target !== root) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end('Not Found')
-      return
-    }
-
-    let stats
+    // A request handler must never rethrow: an unhandled error here aborts
+    // the process, so one malformed GET takes down the server (and the test
+    // run that started it).
     try {
-      stats = statSync(target)
-    } catch (err) {
-      if (err.code === 'ENOENT') {
+      if (req.method !== 'GET') {
+        res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('Method Not Allowed')
+        return
+      }
+
+      let localPath = (req.url ?? '/').split('?')[0]
+      if (localPath === '/' || localPath === '') localPath = '/index.html'
+
+      // Resolve and verify the path stays inside the fixture root.
+      const target = resolve(root, localPath.replace(/^\//, ''))
+      if (!target.startsWith(root + '/') && target !== root) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
         res.end('Not Found')
         return
       }
-      throw err
-    }
 
-    if (stats.isDirectory()) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end('Not Found')
-      return
-    }
+      // A symlink inside the root passes the string check above; the real path
+      // does not. Without this, a link to /etc/passwd is served with a 200.
+      let realTarget
+      try {
+        realTarget = realpathSync(target)
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('Not Found')
+        return
+      }
+      if (realTarget !== realRoot && !realTarget.startsWith(realRoot + sep)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('Not Found')
+        return
+      }
 
-    const ext = localPath.slice(localPath.lastIndexOf('.'))
-    const ct = EXT_TYPES[ext] || 'application/octet-stream'
-    const buf = readFileSync(target)
-    res.writeHead(200, { 'Content-Type': ct, 'Content-Length': buf.length })
-    res.end(buf)
+      let stats
+      try {
+        stats = statSync(target)
+      } catch {
+        // Every stat failure is a miss, not a crash: ENOTDIR (a file used as a
+        // directory) and ENAMETOOLONG used to propagate out of the request
+        // handler and kill the whole server, taking the test process with it.
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('Not Found')
+        return
+      }
+
+      if (stats.isDirectory()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('Not Found')
+        return
+      }
+
+      const ext = localPath.slice(localPath.lastIndexOf('.'))
+      const ct = EXT_TYPES[ext] || 'application/octet-stream'
+      const buf = readFileSync(target)
+      res.writeHead(200, { 'Content-Type': ct, 'Content-Length': buf.length })
+      res.end(buf)
+    } catch {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+      }
+      res.end('Internal Server Error')
+    }
   })
 
   return new Promise((resolve, reject) => {

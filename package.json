@@ -15,7 +15,23 @@
     "e2e:web:replay": "node examples/web/server.mjs & PID=$!; sleep 1; PLAYWRIGHT_BROWSERS_PATH=$(pwd)/.browsers node bin/natl.js run examples/web/login.test.js --mode replay; kill $PID 2>/dev/null"
   },
   "license": "MIT",
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "comment_peer": "The web driver calls page.ariaSnapshotJSON(), which exists from playwright 1.63.0. Declared optional so a mobile-only project is not forced to install it, but npm surfaces the requirement.",
+  "peerDependencies": {
+    "playwright": ">=1.63.0 <2"
+  },
+  "peerDependenciesMeta": {
+    "playwright": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "playwright": "^1.50.0"
+    "playwright": ">=1.63.0 <2"
   }
 }

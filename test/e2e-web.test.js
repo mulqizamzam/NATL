@@ -1,9 +1,12 @@
+// FIRST import on purpose: it sets PLAYWRIGHT_BROWSERS_PATH during its own
+// evaluation, which is the only moment playwright reads it.
+import './helpers/browsers-path.js'
 // natl — end-to-end acceptance for record/replay against a REAL browser.
 //
 // This is the test that proves requirement #3 (replay without the model) and
 // requirement #4 (selector-only tests make zero model calls).
 
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/home/administrator/agent-workspace/project/natl/.browsers'
+
 
 import { strict as assert } from 'node:assert'
 import test from 'node:test'

@@ -1,6 +1,9 @@
-// Playwright resolves browsers from PLAYWRIGHT_BROWSERS_PATH at launch time.
+// FIRST import on purpose: it sets PLAYWRIGHT_BROWSERS_PATH during its own
+// evaluation, which is the only moment playwright reads it.
+import './helpers/browsers-path.js'
+// Browser path comes from the helper imported above (see its header).
 // Set it before anything imports playwright (src/drivers/web.js).
-process.env.PLAYWRIGHT_BROWSERS_PATH = '/home/administrator/agent-workspace/project/natl/.browsers'
+
 
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'

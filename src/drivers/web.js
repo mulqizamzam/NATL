@@ -160,6 +160,15 @@ export function createWebDriver({
 
     async snapshot() {
       const page = this._page
+      // page.ariaSnapshotJSON() arrived in Playwright 1.63.0. On an older
+      // install this was a bare "page.ariaSnapshotJSON is not a function" that
+      // named neither the API nor the version a user had to upgrade to.
+      if (typeof page.ariaSnapshotJSON !== 'function') {
+        throw new NatlError(
+          'this web driver needs playwright >= 1.63.0 for page.ariaSnapshotJSON — ' +
+            'upgrade it in this project (npm i -D playwright@latest)',
+        )
+      }
       const nodes = await page.ariaSnapshotJSON()
       const elements = flattenAria(nodes).map((el, i) => ({ ...el, ref: String(i) }))
       this._elements = elements

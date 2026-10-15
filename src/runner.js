@@ -67,6 +67,13 @@ export async function runTest(testObj, opts) {
     report.error = `test "${report.name}" has no steps array — use test(name, [ ... ])`
     return report
   }
+  // Same rule as an empty plan: a test that asserts nothing must not report
+  // PASS. It printed a green line and exit 0 into CI.
+  if (steps.length === 0) {
+    report.ok = false
+    report.error = `test "${report.name}" has no steps — a passing report would assert nothing`
+    return report
+  }
   const driverLabel = driverName ?? driver.driverName ?? 'web'
 
   for (let i = 0; i < steps.length; i++) {

@@ -1,13 +1,12 @@
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+// FIRST import on purpose: it sets PLAYWRIGHT_BROWSERS_PATH during its own
+// evaluation, and playwright reads that variable when its module is evaluated
+// (imported by src/drivers/web.js below). Global Constraint 8: browsers live in
+// <repo>/.browsers.
+import '../helpers/browsers-path.js'
 import { createWebDriver } from '../../src/drivers/web.js'
 import { makeFingerprint } from '../../src/fingerprint.js'
-
-// Global Constraint 8: browsers live in <repo>/.browsers on this host.
-// playwright lazily reads PLAYWRIGHT_BROWSERS_PATH at launch time, not at
-// import time, so the env var only needs to be set before chromium.launch()
-// fires (inside before()), not before the static import of src/drivers/web.js.
-process.env.PLAYWRIGHT_BROWSERS_PATH = '/home/administrator/agent-workspace/project/natl/.browsers'
 
 const PAGE = `
 <html>
@@ -182,6 +181,36 @@ describe('web driver (frozen contract 3)', () => {
     assert.equal(d._browser, null)
     // release the page handle the broken stub could not close
     await realPageClose().catch(() => {})
+  })
+
+  it('snapshot() feeds the page URL into the fingerprint', async () => {
+    // The unit tests for makeFingerprint all call it with ONE argument, so
+    // dropping the url at the call site in this driver kept the whole suite
+    // green: two screens with the same element multiset then shared a cache key
+    // and a plan recorded on one replayed on the other.
+    await page.setContent('<html><body><button>Sign In</button></body></html>')
+    const snap = await driver.snapshot()
+    assert.equal(
+      snap.fingerprint,
+      makeFingerprint(snap.elements, page.url()),
+      'the fingerprint must hash the current page URL together with the elements',
+    )
+  })
+
+  it('snapshot() names the required playwright version when the API is missing', async () => {
+    // Simulate an older playwright: page.ariaSnapshotJSON arrived in 1.63.0.
+    // It lives on the prototype, so shadow it with an own property rather than
+    // deleting (delete on the instance removes nothing).
+    Object.defineProperty(page, 'ariaSnapshotJSON', { value: undefined, configurable: true })
+    try {
+      await assert.rejects(
+        () => driver.snapshot(),
+        (err) => err.name === 'NatlError' && /1\.63\.0/.test(err.message),
+      )
+    } finally {
+      delete page.ariaSnapshotJSON
+    }
+    assert.equal(typeof page.ariaSnapshotJSON, 'function', 'the stub must be removed')
   })
 
   it("find('#missing') returns count 0 without throwing", async () => {

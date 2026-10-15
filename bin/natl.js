@@ -27,10 +27,20 @@ const VERSION = (() => {
   }
 })()
 
-// Browser path: the natl repo pins browsers in .browsers/ (a writable location
-// on this host; the default ~/.cache is read-only in the DSH sandbox). Set
-// before any Playwright import so the real module picks it up.
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(root, '.browsers')
+// Browser path: THIS REPO pins browsers in .browsers/ (a writable location on
+// this host; the default ~/.cache is read-only in the DSH sandbox). Only
+// default to it when it exists.
+//
+// For an installed package `root` is node_modules/natl, so forcing that path
+// pointed every consumer at a directory nothing ever creates while
+// `npx playwright install` wrote to ~/.cache/ms-playwright — the error's own
+// suggested fix could not work. Absent here means Playwright's normal location.
+{
+  const repoBrowsers = join(root, '.browsers')
+  if (!process.env.PLAYWRIGHT_BROWSERS_PATH && existsSync(repoBrowsers)) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = repoBrowsers
+  }
+}
 
 // die() throws a tagged error so the top-level catch can call process.exit()
 // once, after all async handles are released. process.exit() inside a finally
@@ -64,11 +74,30 @@ function loadConfig(configPath) {
   }
 }
 
+/**
+ * True when a dynamic import failed because a package is not installed.
+ */
+function isMissingModule(err, name) {
+  return err?.code === 'ERR_MODULE_NOT_FOUND' && String(err.message).includes(`'${name}'`)
+}
+
 async function run(file, cfg, mode, providerOverride, modelOverride, reportPath, headed, baseUrlOverride) {
-  const { createWebDriver } = await import('../src/drivers/web.js')
   let driver = null
   try {
     const appType = cfg.appType ?? 'web'
+
+    // Load and validate the test file BEFORE a driver exists. An authoring
+    // mistake — a missing file, a module that throws, no test object — used to
+    // pay a full browser launch first and surface through the browser's error
+    // channel instead of naming the file.
+    // resolve(), not join(): join(cwd, '/abs/path') yields cwd + '/abs/path', so the
+    // absolute path `natl init` prints in its own next-step hint never loaded.
+    const modUrl = file.startsWith('file://') ? file : `file://${resolve(process.cwd(), file)}`
+    const mod = await import(modUrl)
+    const testObj = mod.default ?? Object.values(mod).find((v) => v?.kind === 'test')
+    if (!testObj || testObj.kind !== 'test') {
+      die(`no test object found in ${file}`)
+    }
 
     if (appType === 'mobile') {
       // Mobile driver may not yet exist if this is a fresh checkout.
@@ -82,6 +111,16 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
         selectors: cfg.mobile?.selectors ?? { mode: 'auto' },
       })
     } else {
+      // Imported here rather than at the top of run(): playwright is a
+      // dev/example dependency and stays optional at runtime (spec D5), so a
+      // mobile-only project must not need it. Importing it for every app type
+      // made `natl run` die with ERR_MODULE_NOT_FOUND before any driver existed.
+      const { createWebDriver } = await import('../src/drivers/web.js').catch((err) => {
+        if (isMissingModule(err, 'playwright')) {
+          die('the web driver needs playwright — install it in this project: npm i -D playwright')
+        }
+        throw err
+      })
       driver = createWebDriver({
         url: cfg.web?.url ?? 'http://127.0.0.1:4173',
         headless: headed ? false : (cfg.web?.headless ?? true),
@@ -90,16 +129,6 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
     }
 
     await driver.open()
-
-    // Load the test file.
-    // resolve(), not join(): join(cwd, '/abs/path') yields cwd + '/abs/path', so the
-    // absolute path `natl init` prints in its own next-step hint never loaded.
-    const modUrl = file.startsWith('file://') ? file : `file://${resolve(process.cwd(), file)}`
-    const mod = await import(modUrl)
-    const testObj = mod.default ?? Object.values(mod).find((v) => v?.kind === 'test')
-    if (!testObj || testObj.kind !== 'test') {
-      die(`no test object found in ${file}`)
-    }
 
     // Provider config: CLI flag wins, then config file, then env.
     // baseUrl: cfg.baseUrl (from natl.config.json) → NATL_BASE_URL env → undefined.

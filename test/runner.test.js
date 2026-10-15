@@ -487,6 +487,15 @@ test('replay mode names the action failure instead of blaming the cache', async 
   assert.doesNotMatch(report.error, /no cached plan/)
 })
 
+test('a test with an empty steps array fails instead of reporting PASS', async () => {
+  // It printed a green line and exit 0 into CI while asserting nothing — the
+  // same vacuous-green failure mode as an empty plan.
+  const driver = makeFakeDriver(elements)
+  const report = await runTest(testCtor('empty', []), { driver, provider: null, cachePath })
+  assert.equal(report.ok, false)
+  assert.match(report.error, /has no steps/)
+})
+
 test('a test object with no steps array fails the report instead of throwing', async () => {
   // steps.length used to be read outside the try block: a bare TypeError
   // escaped the runner and the CLI reported a crash.

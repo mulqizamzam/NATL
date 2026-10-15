@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { loadCache, cacheLookup, cacheRecord, saveCache, loadSave } from '../src/cache.js'
+import { loadCache, cacheLookup, cacheRecord, saveCache, loadSave, cacheFileName } from '../src/cache.js'
 import { makeCacheKey, makeFingerprint } from '../src/fingerprint.js'
 
 const BASE_DIR = 'test/fixtures'
@@ -17,6 +17,21 @@ describe('cache (frozen contract 5)', () => {
 
   after(async () => {
     await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('cacheFileName is unique per resolved path, not per sanitized string', () => {
+    // `/` and `_` both collapse to `_`, so a/b.test.js and a_b.test.js used to
+    // share one cache file — two unrelated tests writing into one store.
+    const a = cacheFileName('a/b.test.js', '/proj')
+    const b = cacheFileName('a_b.test.js', '/proj')
+    assert.notEqual(a, b, 'two different test files must not share a cache file')
+    assert.equal(cacheFileName('a/b.test.js', '/proj'), a, 'and it must be deterministic')
+    assert.equal(cacheFileName('a/b.test.js', '/other'), cacheFileName('a/b.test.js', '/other'))
+    assert.notEqual(
+      cacheFileName('a/b.test.js', '/proj'),
+      cacheFileName('a/b.test.js', '/other'),
+      'the same relative path in a different project is a different file',
+    )
   })
 
   it('loadCache on a missing file returns an empty cache object', async () => {
@@ -169,9 +184,12 @@ describe('cache (frozen contract 5)', () => {
   })
 
   it('parallel writers using loadSave must not drop entries', async () => {
+    // 12 writers, not 3: with the previous compare-and-set this test lost an
+    // entry in 2 runs out of 5 even at 3 writers, and the loss is silent — a
+    // recorded plan disappears and the next replay run reports a cache miss.
     const racePath = join(tmpDir, 'race-merged.json')
     await Promise.all(
-      [1, 2, 3].map(async (i) => {
+      Array.from({ length: 12 }, (_v, idx) => idx + 1).map(async (i) => {
         await loadSave(racePath, (c) => {
           cacheRecord(c, {
             key: makeCacheKey(`step-${i}`, `fp-${i}`),
@@ -188,8 +206,8 @@ describe('cache (frozen contract 5)', () => {
     const final = await loadCache(racePath)
     assert.equal(
       Object.keys(final.entries).length,
-      3,
-      'all 3 concurrently recorded entries must survive',
+      12,
+      'all 12 concurrently recorded entries must survive',
     )
   })
 

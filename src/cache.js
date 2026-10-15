@@ -1,6 +1,22 @@
-import { mkdir, readFile, writeFile, rename, unlink, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, writeFile, rename, unlink, stat, open } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 import { makeCacheKey } from './fingerprint.js'
+import { NatlError } from './errors.js'
+
+/**
+ * File name for one test file's cache.
+ *
+ * The readable part alone is not unique: `/` and `_` both collapse to `_`, so
+ * `a/b.test.js` and `a_b.test.js` produced the SAME cache file and two unrelated
+ * tests shared one store. A short digest of the resolved path keeps the name
+ * readable and makes it unique per file.
+ */
+export function cacheFileName(file, cwd = process.cwd()) {
+  const readable = String(file).replace(/[^\w.-]/g, '_')
+  const digest = createHash('sha256').update(resolve(cwd, String(file))).digest('hex').slice(0, 8)
+  return `${readable}.${digest}.json`
+}
 
 function emptyCache() {
   return { version: 1, entries: {} }
@@ -51,54 +67,65 @@ export async function saveCache(cache, path) {
 }
 
 /**
- * Idempotent load→modify→save with conflict detection on content.
+ * Idempotent load→modify→save, serialized by an exclusive lock file.
  *
- * When multiple concurrent writers touch the same cache file, each caller gets
- * the latest on-disk state and re-applies its change. Without this, the classic
- * lost-update pattern wins: every writer loads a stale snapshot, overwrites the
- * file, and drops the other writers' contributions.
+ * The obvious implementations do not work, and both were measured here:
  *
- * The conflict check must NOT be an mtime comparison that brackets this
- * function's own write: `saveCache` renames a fresh temp file into place, so the
- * mtime always differs afterwards and every single uncontended write looks like
- * a conflict — six writes and 375 ms of backoff per record, forever. The two
- * guards below bracket only windows another writer can actually occupy:
+ *   - Comparing mtime across this function's own write always reports a
+ *     conflict (saveCache renames a fresh temp file in), so every uncontended
+ *     record paid six writes and 375ms of backoff.
+ *   - Verifying our own entries after writing is a TOCTOU check: two writers
+ *     that both read before either writes will each save a snapshot that lacks
+ *     the other's entry, and each read-back happens before the other's save.
+ *     With three concurrent writers the shared test failed 2 runs in 5, losing
+ *     a recorded plan — which is silent data loss, not a slow test.
  *
- *   1. mtime before our read vs mtime after our read — someone replaced the
- *      file while we were loading it, so the snapshot we hold is already stale.
- *   2. read-back after our write — someone wrote on top of us and dropped our
- *      entries; re-apply them on top of their state.
+ * A lock makes the read-modify-write sequence atomic across processes, so each
+ * writer loads the newest state. `open(..., 'wx')` is O_EXCL: exactly one
+ * process creates the file, everyone else waits.
  */
-export async function loadSave(path, transform) {
-  const BACKOFF_MS = 25
-  const MAX_RETRIES = 5
+const LOCK_STALE_MS = 10_000
+const LOCK_WAIT_MS = 10_000
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const before = await getFileMtimeMs(path).catch(() => null)
-    const cache = await loadCache(path)
-    const afterLoad = await getFileMtimeMs(path).catch(() => null)
-
-    const loadedSnapshot = Object.keys(cache.entries)
-    transform(cache)
-    const added = Object.keys(cache.entries).filter((k) => !loadedSnapshot.includes(k))
-
-    await saveCache(cache, path)
-
-    if (before === afterLoad) {
-      const check = await loadCache(path)
-      const oursSurvived = added.every((k) => check.entries[k] !== undefined)
-      const notShrunk = Object.keys(check.entries).length >= Object.keys(cache.entries).length
-      if (oursSurvived && notShrunk) return cache
+async function acquireLock(lockPath) {
+  const deadline = Date.now() + LOCK_WAIT_MS
+  for (;;) {
+    try {
+      return await open(lockPath, 'wx')
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err
+      // A writer that died holding the lock must not wedge the cache forever.
+      const age = await stat(lockPath).then((st) => Date.now() - st.mtimeMs).catch(() => 0)
+      if (age > LOCK_STALE_MS) {
+        await unlink(lockPath).catch(() => {})
+        continue
+      }
+      if (Date.now() > deadline) {
+        throw new NatlError(`timed out waiting for the cache lock at ${lockPath}`)
+      }
+      await sleep(5 + Math.random() * 20)
     }
-    if (attempt < MAX_RETRIES) await sleep(BACKOFF_MS * (attempt + 1))
   }
-  return await loadCache(path)
+}
+
+export async function loadSave(path, transform) {
+  const lockPath = `${path}.lock`
+  await mkdir(dirname(path), { recursive: true })
+  const handle = await acquireLock(lockPath)
+  try {
+    const cache = await loadCache(path)
+    transform(cache)
+    await saveCache(cache, path)
+    return cache
+  } finally {
+    // Release before anything else: a lock left behind costs the next writer up
+    // to LOCK_STALE_MS of waiting.
+    await handle.close().catch(() => {})
+    await unlink(lockPath).catch(() => {})
+  }
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function getFileMtimeMs(path) {
-  return (await stat(path)).mtimeMs
-}

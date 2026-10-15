@@ -113,6 +113,15 @@ MIT ditambahkan. **Status: [x] DONE
 **Status: [x] DITULIS, BELUM PERNAH JALAN DI RUNNER** (mesin ini tidak punya akses
 runner; `--with-deps` butuh apt/root).
 
+### Task 14: loadSave kehilangan entri di kontensi nyata (DITEMUKAN SAAT VERIFIKASI)
+Test konkurensi yang sudah ada gagal **2 dari 5 run** dengan hanya 3 penulis — bukan
+test flaky, tapi kehilangan data diam-diam: read-back CAS bersifat TOCTOU, dua penulis
+yang sama-sama membaca sebelum salah satu menulis akan saling menimpa.
+**Fix:** lock file eksklusif (`open(...,'wx')`, O_EXCL) membungkus read-modify-write;
+lock basi (>10s) di-steal supaya penulis yang mati tidak memblokir cache selamanya.
+**Verification:** test diperkuat 3→12 penulis; tanpa lock 3/3 run gagal, dengan lock
+22 run bersih. **Status: [x] DONE**
+
 ### Task 13..N  [pending] — auditor docs-drift belum melapor
 Juga belum dikerjakan dari laporan yang sudah masuk: `loadSave` di kontensi berat,
 `report.js` + `renderReport` tanpa test, fake WebDriver non-W3C New Session,

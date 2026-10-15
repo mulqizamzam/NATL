@@ -146,7 +146,8 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
       : null
 
     const cacheDir = cfg.cacheDir ?? '.natl/cache'
-    const cachePath = join(process.cwd(), cacheDir, `${file.replace(/[^\w.-]/g, '_')}.json`)
+    const { cacheFileName } = await import('../src/cache.js')
+    const cachePath = join(process.cwd(), cacheDir, cacheFileName(file))
 
     const { runTest } = await import('../src/runner.js')
     const report = await runTest(testObj, {

@@ -6,7 +6,7 @@ import { makeFingerprint } from '../fingerprint.js'
 
 const DEFAULT_SERVER = 'http://127.0.0.1:4723'
 const TEXT_CAP = 4000
-const ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cecf'
+const ELEMENT_KEY = 'element-6066-11e4-a52e-4f735466cef'
 const WAIT_TIMEOUT_MS = 3000
 const WAIT_INTERVAL_MS = 200
 
@@ -15,16 +15,43 @@ async function request(method, url, body) {
   if (body !== undefined) init.body = JSON.stringify(body)
   const resp = await fetch(url, init)
   if (!resp.ok) {
+    // The W3C error body carries the machine-readable code, and 404 alone does
+    // not say why: "no such element" is an expected outcome, while "invalid
+    // session id" means the session is gone. Collapsing the second into the
+    // first made a dead session look like an empty page.
+    const text = await resp.text().catch(() => '')
+    let code = ''
+    let message = ''
+    try {
+      const parsed = JSON.parse(text)
+      code = parsed?.value?.error ?? parsed?.error ?? ''
+      message = parsed?.value?.message ?? parsed?.message ?? ''
+    } catch {
+      // Non-JSON error body: the status alone is all we have.
+    }
     throw new NatlError(`HTTP ${resp.status} from ${method} ${url}`, {
       status: resp.status,
       method,
       url,
+      error: code,
+      errorMessage: message,
     })
   }
   return resp.json()
 }
 
 const statusOf = (err) => (err && err.details ? err.details.status : undefined)
+
+/** W3C codes that mean the session itself is gone, not the element. */
+const SESSION_FATAL = new Set([
+  'invalid session id',
+  'invalid or expired session id',
+  'session not created',
+  'no such window',
+])
+
+const isSessionFatal = (err) =>
+  SESSION_FATAL.has(String(err?.details?.error ?? '').toLowerCase())
 
 /** Attribute scan for one opening tag. No XML library (plan Task 4). */
 function readAttributes(source) {
@@ -54,47 +81,56 @@ function mapNode(tag, attrs) {
 
   const isIOS = tag.startsWith('XCUIElementType')
   const androidClass = isIOS ? '' : basename(tag)
-  const kind = androidClass || className
+  // The class attribute is what a real UiAutomator2 source carries — every node
+  // is a <node class="android.widget.Button"/>. Preferring the tag name made
+  // `kind` the constant string 'node', so the whole role taxonomy below was
+  // unreachable and every control was reported as role 'text'.
+  const kind = className || androidClass
 
   let role = null
   let accessibleName = ''
   let selector = null
+  // resource-id is not an accessibility id on Android: `accessibility id` maps
+  // to content-desc, so a raw resource-id times out instead of resolving. Tag
+  // it with the `id=` prefix that resolveStrategy already understands; content
+  // descriptions and text stay accessibility ids.
+  const byId = (v) => (v ? `id=${v}` : '')
 
   if (!isIOS) {
     // Android: class attribute wins, else the element tag itself.
     if (kind === 'Button') {
       role = 'button'
       accessibleName = desc || text
-      selector = resourceId || desc || text
+      selector = byId(resourceId) || desc || text
     } else if (kind === 'EditText') {
       role = 'textbox'
       accessibleName = resourceId || desc || text
-      selector = resourceId || desc
+      selector = byId(resourceId) || desc
     } else if (kind === 'CheckBox') {
       role = 'checkbox'
       accessibleName = desc || resourceId
-      selector = resourceId || desc
+      selector = byId(resourceId) || desc
     } else if (kind === 'ImageView' || kind === 'ImageButton') {
       role = 'img'
       accessibleName = desc || resourceId
-      selector = resourceId || desc
+      selector = byId(resourceId) || desc
     } else if (kind === 'TextView' && text) {
       role = 'text'
       accessibleName = text
-      selector = resourceId || text
+      selector = byId(resourceId) || text
     } else if (kind === 'ViewGroup' || kind === 'FrameLayout' || kind === 'LinearLayout') {
       role = 'group'
       accessibleName = desc || resourceId
-      selector = resourceId || desc
+      selector = byId(resourceId) || desc
     } else if (editable === 'true') {
       // contenteditable is the browser-style fallback for unknown classes.
       role = 'textbox'
       accessibleName = desc || resourceId
-      selector = resourceId || desc
+      selector = byId(resourceId) || desc
     } else if (text || desc || resourceId) {
       role = 'text'
       accessibleName = text || desc || resourceId
-      selector = resourceId || desc || text
+      selector = byId(resourceId) || desc || text
     }
   } else if (tag === 'XCUIElementTypeButton') {
     role = 'button'
@@ -199,13 +235,21 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
       if (sel !== undefined) {
         ({ strategy, value: selValue } = resolveStrategy(sel))
       } else {
-        // Re-resolve against the live page: refs are positions, and the page may
-        // have moved since the planner read them.
-        const snap = await this.snapshot()
-        const el = snap.elements.find((e) => e.ref === String(ref))
-        if (!el) throw new NatlError(`ref ${ref} not in current snapshot`)
+        // Resolve against the snapshot the caller planned against, not a fresh
+        // one. Re-snapshotting here re-indexes refs, so any DOM change between
+        // two actions of the same plan silently retargets every later action at
+        // whatever slid into the old index — a recorded "fill the email field,
+        // then click Sign In" typed into a row that appeared in between. The
+        // runner calls snapshot() before it acts, so this._elements is that
+        // snapshot; _waitForElement below still polls the live device, so a
+        // genuinely stale ref fails loudly instead of hitting the wrong
+        // element.
+        if (!this._elements || this._elements.length === 0) {
+          await this.snapshot()
+        }
         const node = this._elements.find((e) => e.ref === String(ref))
-        ;({ strategy, value: selValue } = resolveStrategy(node.selector || el.name))
+        if (!node) throw new NatlError(`ref ${ref} not in current snapshot`)
+        ;({ strategy, value: selValue } = resolveStrategy(node.selector || node.name))
       }
 
       if (action === 'scroll') {
@@ -224,12 +268,16 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
         case 'click':
           await request('POST', `${base}/click`, {})
           return
-        case 'fill':
-          // W3C Element Send Keys: both 'text' (string) and 'value' (array of
-          // codepoints) are required. The fake server in tests accepts either
-          // shape, so we send the canonical form here.
-          await request('POST', `${base}/value`, { text: value, value: value.split('') })
+        case 'fill': {
+          // W3C Element Send Keys: both 'text' (string) and 'value' (an array of
+          // Unicode CODE POINTS) are required. `split('')` yields UTF-16 code
+          // units instead, which breaks every character outside the BMP — an
+          // emoji arrives at the device as two lone surrogates. Array.from is
+          // the spec's own construction.
+          const text = typeof value === 'string' ? value : ''
+          await request('POST', `${base}/value`, { text, value: Array.from(text) })
           return
+        }
         case 'clear':
           // W3C Element Clear is a DELETE, not a POST.
           await request('DELETE', `${base}/clear`, undefined)
@@ -257,7 +305,10 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
       try {
         handle = await this._findElement(strategy, value)
       } catch (err) {
-        // "not found" is an expected outcome for an expectCount(sel, 0) step.
+        // "not found" is an expected outcome for an expectCount(sel, 0) step —
+        // unless the session died, which is not the same as an empty page and
+        // must not be reported as a passing "0 elements" assertion.
+        if (isSessionFatal(err)) throw err
         if (statusOf(err) === 404) return { text: '', count: 0 }
         throw err
       }
@@ -283,6 +334,7 @@ export function createMobileDriver({ server = DEFAULT_SERVER, capabilities = {},
         try {
           return await this._findElement(strategy, value)
         } catch (err) {
+          if (isSessionFatal(err)) throw err
           const notFound = statusOf(err) === 404 || statusOf(err) === 400
           if (!notFound) throw err
           if (Date.now() >= deadline) {

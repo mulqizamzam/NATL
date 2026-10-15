@@ -7,7 +7,7 @@ import test from 'node:test'
 import { runTest } from '../src/runner.js'
 import { test as testCtor, step, click, fill, expectText, expectCount, expectUrl, goto } from '../src/steps.js'
 import { loadCache, saveCache, cacheLookup, cacheRecord } from '../src/cache.js'
-import { makeFingerprint } from '../src/fingerprint.js'
+import { makeCacheKey, makeFingerprint } from '../src/fingerprint.js'
 
 function makeFakeDriver(elements) {
   let currentElements = elements
@@ -431,4 +431,70 @@ test('concurrent record runs do not lose each other\'s entries', async () => {
   assert.equal(Object.keys(loadedB.entries).length, 1, 'run B\'s entry must survive')
   assert.equal(loadedA.entries[Object.keys(loadedA.entries)[0]].stepText, 'log in')
   assert.equal(loadedB.entries[Object.keys(loadedB.entries)[0]].stepText, 'log in')
+})
+
+// ---------------------------------------------------------------------------
+// regressions
+// ---------------------------------------------------------------------------
+
+test('expectText with a /g regex does not alternate pass/fail on reuse', async () => {
+  // RegExp.prototype.test advances lastIndex on a global regex, so the same
+  // assertion object used twice failed the second time even though the page
+  // text never changed.
+  const welcome = /Welcome/g
+  const driver = makeFakeDriver(elements)
+  const testObj = testCtor('regex-reuse', [expectText('#status', welcome), expectText('#status', welcome)])
+
+  const first = await runTest(testObj, { driver, provider: null, cachePath })
+  const second = await runTest(testObj, { driver, provider: null, cachePath })
+
+  assert.equal(first.ok, true, `first run: ${first.error}`)
+  assert.equal(second.ok, true, `second run must not fail on regex state: ${second.error}`)
+})
+
+test('replay mode names the action failure instead of blaming the cache', async () => {
+  // The cache hit and the element resolved, so "no cached plan" would point the
+  // user at the wrong subsystem.
+  const path = `${cacheDir}/replay-cause.json`
+  const driver = makeFakeDriver(elements)
+  const snap = await driver.snapshot()
+  const cache = await loadCache(path)
+  cacheRecord(cache, {
+    key: makeCacheKey('click sign in', snap.fingerprint),
+    stepText: 'click sign in',
+    fingerprint: snap.fingerprint,
+    elements: snap.elements,
+    actions: [{ action: 'click', ref: '0' }],
+    provider: 'p',
+    model: 'm',
+  })
+  await saveCache(cache, path)
+
+  driver.act = async () => {
+    throw new Error('element is not attached')
+  }
+
+  const testObj = testCtor('replay-cause', [step('click sign in')])
+  const report = await runTest(testObj, {
+    driver,
+    provider: { provider: 'p', model: 'm' },
+    cachePath: path,
+    mode: 'replay',
+  })
+
+  assert.equal(report.ok, false)
+  assert.match(report.error, /recorded action failed: .*not attached/)
+  assert.doesNotMatch(report.error, /no cached plan/)
+})
+
+test('a test object with no steps array fails the report instead of throwing', async () => {
+  // steps.length used to be read outside the try block: a bare TypeError
+  // escaped the runner and the CLI reported a crash.
+  const driver = makeFakeDriver(elements)
+  const report = await runTest(
+    { kind: 'test', name: 'no-steps' },
+    { driver, provider: null, cachePath },
+  )
+  assert.equal(report.ok, false)
+  assert.match(report.error, /no steps array/)
 })

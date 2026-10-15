@@ -12,7 +12,7 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -92,7 +92,9 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
     await driver.open()
 
     // Load the test file.
-    const modUrl = file.startsWith('file://') ? file : `file://${join(process.cwd(), file)}`
+    // resolve(), not join(): join(cwd, '/abs/path') yields cwd + '/abs/path', so the
+    // absolute path `natl init` prints in its own next-step hint never loaded.
+    const modUrl = file.startsWith('file://') ? file : `file://${resolve(process.cwd(), file)}`
     const mod = await import(modUrl)
     const testObj = mod.default ?? Object.values(mod).find((v) => v?.kind === 'test')
     if (!testObj || testObj.kind !== 'test') {
@@ -130,7 +132,13 @@ async function run(file, cfg, mode, providerOverride, modelOverride, reportPath,
 
     if (reportPath) {
       const { writeFile } = await import('node:fs/promises')
-      await writeFile(reportPath, toJson(report), 'utf8')
+      try {
+        await writeFile(reportPath, toJson(report), 'utf8')
+      } catch (err) {
+        // The test already ran and its result is on stdout. Failing to persist
+        // the JSON report must not turn a passing run into a usage error.
+        console.error(`natl: could not write report to ${reportPath}: ${err.message}`)
+      }
     }
 
     return report
@@ -190,7 +198,10 @@ try {
   if (cmd === 'init') {
     const { init, askQuestions } = await import('../src/init.js')
     const answers = await askQuestions(true)
-    const { configPath, testPath } = await init({ cwd: process.cwd(), answers })
+    const { configPath, testPath, backups = [] } = await init({ cwd: process.cwd(), answers })
+    for (const bak of backups) {
+      console.log(`Previous file kept: ${bak}`)
+    }
     console.log(`Config written to: ${configPath}`)
     console.log(`Starter test:     ${testPath}`)
     console.log()

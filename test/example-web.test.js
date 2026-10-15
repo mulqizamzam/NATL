@@ -38,6 +38,7 @@ const planOverride = async ({ snapshot }) => {
 
 let server
 let port
+let baseUrl
 let driver
 let tmpDir
 let cachePath
@@ -51,7 +52,8 @@ before(async () => {
   server = started.server
   port = started.port
 
-  driver = createWebDriver({ url: `http://127.0.0.1:${port}`, headless: true })
+  baseUrl = `http://127.0.0.1:${port}`
+  driver = createWebDriver({ url: baseUrl, headless: true })
   await driver.open()
 })
 
@@ -63,6 +65,10 @@ after(async () => {
 
 describe('example web (login.test.js) proves record-then-replay', () => {
   it('first run records the NL step and passes both assertions', async () => {
+    // Each run starts where `natl run` starts: a fresh load of the base URL.
+    // Run 1 signs in, which changes the screen; without this reset run 2 would
+    // begin on the post-login page and never be a candidate for replay.
+    await driver.goto(baseUrl)
     const report = await runTest(exampleTest, {
       driver,
       provider: { provider: 'stub', model: 'stub', apiKey: '' },
@@ -76,6 +82,7 @@ describe('example web (login.test.js) proves record-then-replay', () => {
   })
 
   it('second run replays from cache with zero model calls', async () => {
+    await driver.goto(baseUrl)
     const report = await runTest(exampleTest, {
       driver,
       provider: { provider: 'stub', model: 'stub', apiKey: '' },

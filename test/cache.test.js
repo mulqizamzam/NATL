@@ -140,6 +140,34 @@ describe('cache (frozen contract 5)', () => {
     assert.match(message, /JSON/)
   })
 
+  it('loadSave does not re-run transform when no other writer touched the file', async () => {
+    // The mtime guard must detect *another* writer's save, never the one it made
+    // itself. A guard that brackets its own write retries forever: the transform
+    // runs 6x and every cache write pays the full backoff.
+    const path = join(tmpDir, 'no-self-trigger.json')
+    let calls = 0
+    const entry = (key) => ({
+      key,
+      stepText: key,
+      fingerprint: `fp-${key}`,
+      elements: [],
+      actions: [{ action: 'click', ref: '0' }],
+      provider: 'p',
+      model: 'm',
+    })
+    await loadSave(path, (c) => { calls += 1; cacheRecord(c, entry('solo')) })
+    assert.equal(calls, 1, 'transform must run exactly once for a single uncontended write')
+
+    const started = Date.now()
+    await loadSave(path, (c) => { calls += 1; cacheRecord(c, entry('solo-2')) })
+    const elapsed = Date.now() - started
+    assert.equal(calls, 2)
+    assert.ok(elapsed < 200, `uncontended loadSave must not sleep through the backoff (took ${elapsed}ms)`)
+
+    const after = await loadCache(path)
+    assert.equal(Object.keys(after.entries).length, 2)
+  })
+
   it('parallel writers using loadSave must not drop entries', async () => {
     const racePath = join(tmpDir, 'race-merged.json')
     await Promise.all(

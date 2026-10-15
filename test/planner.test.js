@@ -276,3 +276,38 @@ test('planner — reports provider and model from the provider config', async ()
   assert.equal(result.provider, 'anthropic')
   assert.equal(result.model, 'claude-3-5-haiku')
 })
+
+// ---------------------------------------------------------------------------
+// vacuous plans
+// ---------------------------------------------------------------------------
+
+test('planner - an empty actions array is not a valid plan: repair retry, then throw', async () => {
+  // `{"actions":[]}` satisfies `Array.isArray`, so it used to pass validation,
+  // execute zero actions, and be cached forever as a green step. The tool
+  // schema already declares minItems:1, so the client must enforce it too.
+  const { fn, calls } = stubCallModel([{ actions: [] }])
+
+  await assert.rejects(
+    plan({
+      provider: PROVIDER,
+      instruction: 'click the sign in button',
+      snapshot: SNAPSHOT,
+      callModelOverride: fn,
+    }),
+    (err) => err instanceof NatlError && /2 attempts/.test(err.message),
+  )
+  assert.equal(calls.length, 2, 'the empty plan must consume the one repair retry')
+})
+
+test('planner - a non-empty plan still wins after an empty first answer', async () => {
+  const { fn, calls } = stubCallModel([{ actions: [] }, VALID_PLAN])
+
+  const result = await plan({
+    provider: PROVIDER,
+    instruction: 'click the sign in button',
+    snapshot: SNAPSHOT,
+    callModelOverride: fn,
+  })
+  assert.deepEqual(result.actions, VALID_PLAN.actions)
+  assert.equal(calls.length, 2)
+})

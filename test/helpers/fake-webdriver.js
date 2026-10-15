@@ -91,7 +91,7 @@ export function startFakeDriver({ fixture = '', calls: callsArr = [], errors = {
           return
         }
         const elId = `el-${value}`
-        write(res, 200, { value: { 'element-6066-11e4-a52e-4f735466cecf': elId } })
+        write(res, 200, { value: { 'element-6066-11e4-a52e-4f735466cef': elId } })
         callsArr.push({ method, path, body: rawBody, status: 200 })
         return
       }

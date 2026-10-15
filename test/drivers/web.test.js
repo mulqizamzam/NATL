@@ -95,6 +95,71 @@ describe('web driver (frozen contract 3)', () => {
     assert.equal(await page.locator('#user').inputValue(), 'x')
   })
 
+  it("act({action:'click'}) targets the Nth element when accessible names collide", async () => {
+    // A page can expose several elements with the same {role,name}. Resolving
+    // by role+name alone always hits the first one, so the ref's position
+    // inside its own {role,name} group has to survive down to the locator.
+    await page.setContent(`
+      <html><body>
+        <button id="a1" onclick="window.__hit = 'first'">Add</button>
+        <button id="a2" onclick="window.__hit = 'second'">Add</button>
+        <button id="a3" onclick="window.__hit = 'third'">Add</button>
+      </body></html>
+    `)
+    await driver.snapshot()
+    const adds = driver._elements.filter((e) => e.role === 'button' && e.name === 'Add')
+    assert.equal(adds.length, 3)
+    await driver.act({ action: 'click', ref: adds[1].ref })
+    assert.equal(await page.evaluate(() => window.__hit), 'second')
+    await driver.act({ action: 'click', ref: adds[2].ref })
+    assert.equal(await page.evaluate(() => window.__hit), 'third')
+  })
+
+  it("act({action:'fill'}) targets the Nth element when accessible names collide", async () => {
+    await page.setContent(`
+      <html><body>
+        <input aria-label="Qty" />
+        <input aria-label="Qty" />
+      </body></html>
+    `)
+    await driver.snapshot()
+    const boxes = driver._elements.filter((e) => e.role === 'textbox' && e.name === 'Qty')
+    assert.equal(boxes.length, 2)
+    await driver.act({ action: 'fill', ref: boxes[1].ref, value: '7' })
+    const values = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('input')).map((i) => i.value))
+    assert.deepEqual(values, ['', '7'])
+  })
+
+  it('snapshot() carries page text, and different text means a different fingerprint', async () => {
+    // Playwright reports a paragraph as {role:'paragraph', text:'...'} — its text
+    // is not an accessible name. Reading `name` alone left the planner blind to
+    // page content and gave two different screens the SAME fingerprint, so a
+    // plan recorded on one screen replayed on the other.
+    await page.setContent(`
+      <html><body>
+        <p>Order total: 42.00 EUR</p>
+        <p>Shipping to Berlin</p>
+        <button>Pay</button>
+      </body></html>
+    `)
+    const a = await driver.snapshot()
+    assert.ok(a.text.includes('42.00'), `page text missing from snapshot: ${JSON.stringify(a.text)}`)
+    assert.ok(a.text.includes('Berlin'), `page text missing from snapshot: ${JSON.stringify(a.text)}`)
+    const price = a.elements.find((e) => e.name === 'Order total: 42.00 EUR')
+    assert.ok(price, 'a paragraph must be selectable by its text')
+
+    await page.setContent(`
+      <html><body>
+        <p>Order total: 99.00 EUR</p>
+        <p>Shipping to Paris</p>
+        <button>Pay</button>
+      </body></html>
+    `)
+    const b = await driver.snapshot()
+    assert.notEqual(a.fingerprint, b.fingerprint, 'two screens with different text must not share a cache key')
+  })
+
   it("find('#missing') returns count 0 without throwing", async () => {
     await page.setContent(PAGE)
     const res = await driver.find('#missing')

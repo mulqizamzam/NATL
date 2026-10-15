@@ -59,6 +59,14 @@ export async function runTest(testObj, opts) {
   }
 
   const steps = testObj.steps
+  // `test(name)` without a steps array used to reach `steps.length` outside the
+  // try block and throw a bare TypeError past the runner, which the CLI reports
+  // as a crash instead of a failing test.
+  if (!Array.isArray(steps)) {
+    report.ok = false
+    report.error = `test "${report.name}" has no steps array — use test(name, [ ... ])`
+    return report
+  }
   const driverLabel = driverName ?? driver.driverName ?? 'web'
 
   for (let i = 0; i < steps.length; i++) {
@@ -89,10 +97,12 @@ export async function runTest(testObj, opts) {
               }
               try {
                 await driver.act({ ...act, ref: newRef })
-              } catch {
-                // action threw — fall through to plan
+              } catch (err) {
+                // Action threw. Keep the cause: the cache hit and the element
+                // resolved, so reporting a bare "no cached plan" sends the user
+                // hunting for a cache problem that does not exist.
                 planResult = null
-                entry.detail = 'replay-miss (failed)'
+                entry.detail = `replay-miss (failed): ${describeError(err).slice(0, 120)}`
                 replayedAll = false
                 break
               }
@@ -103,8 +113,11 @@ export async function runTest(testObj, opts) {
 
         if (!planResult) {
           if (mode === 'replay') {
+            const cause = entry.detail?.startsWith('replay-miss (failed): ')
+              ? ` — recorded action failed: ${entry.detail.slice('replay-miss (failed): '.length)}`
+              : ''
             throw new NatlError(
-              `replay miss: no cached plan for "${step.text}" (use mode auto or record)`,
+              `replay miss for "${step.text}"${cause || ': no cached plan'} (use mode auto or record)`,
             )
           }
           if (!provider) {
@@ -187,7 +200,11 @@ export async function runTest(testObj, opts) {
             }
             const actual = text.trim()
             if (step.value instanceof RegExp) {
-              if (!step.value.test(actual)) {
+              // A /g or /y regex advances lastIndex on every test(), so the same
+              // assertion object would alternate pass/fail across uses. Match a
+              // fresh copy: same source, same flags, lastIndex 0.
+              const matcher = new RegExp(step.value.source, step.value.flags)
+              if (!matcher.test(actual)) {
                 throw new NatlError(`expectText: ${step.value} did not match "${actual}" for ${step.sel}`)
               }
             } else if (actual !== String(step.value)) {

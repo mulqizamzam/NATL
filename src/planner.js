@@ -17,15 +17,24 @@ const REPAIR_SUFFIX =
   'No prose, no markdown fences.'
 
 /**
- * Is `parsed` a usable plan — a plain object carrying an `actions` array?
- * Anything else means the model did not comply and the step needs a repair retry.
+ * Is `parsed` a usable plan — a plain object carrying a NON-EMPTY `actions`
+ * array? Anything else means the model did not comply and the step needs a
+ * repair retry.
+ *
+ * The non-empty check is load-bearing: `{"actions":[]}` satisfies
+ * `Array.isArray`, and an empty plan executes zero actions, which the runner
+ * would report as a pass and then cache permanently — a green step that tests
+ * nothing, replayed forever. The tool schema already declares minItems:1
+ * (llm.js); that is a hint to the model, not an enforcement, so enforce it here
+ * where the repair retry can still catch it.
  */
 function isValidPlanShape(parsed) {
   return (
     parsed !== null &&
     typeof parsed === 'object' &&
     !Array.isArray(parsed) &&
-    Array.isArray(parsed.actions)
+    Array.isArray(parsed.actions) &&
+    parsed.actions.length > 0
   )
 }
 

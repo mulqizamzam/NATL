@@ -10,10 +10,18 @@ const TEXT_CAP = 4000
 
 function flattenAria(nodes) {
   // Depth-first in visit order. Skip nodes with neither role nor name.
+  //
+  // `name` is the ACCESSIBLE name, so it is absent on anything whose text is
+  // not its label: Playwright reports `<p>Order total: 42.00 EUR</p>` as
+  // {role:'paragraph', text:'Order total: 42.00 EUR'}. Reading `name` alone
+  // dropped every paragraph from the page, which blinded the planner to page
+  // content and gave two pages with different text the SAME fingerprint — so a
+  // plan recorded on one screen replayed on another.
   const out = []
   const walk = (arr) => {
     for (const node of arr) {
-      if (node.role || node.name) out.push({ role: node.role || '', name: node.name || '' })
+      const name = node.name ?? node.text ?? ''
+      if (node.role || name) out.push({ role: node.role || '', name })
       if (node.children) walk(node.children)
     }
   }
@@ -27,8 +35,9 @@ function ariaText(nodes) {
   const lines = []
   const walk = (arr) => {
     for (const node of arr) {
-      if (node.role || node.name) {
-        const pair = [node.role, node.name].filter(Boolean).join(' ')
+      const name = node.name ?? node.text ?? ''
+      if (node.role || name) {
+        const pair = [node.role, name].filter(Boolean).join(' ')
         lines.push(pair)
       }
       if (node.children) walk(node.children)
@@ -38,12 +47,42 @@ function ariaText(nodes) {
   return lines.join('\n').slice(0, TEXT_CAP)
 }
 
+/**
+ * Position of `el` among the elements of the same snapshot that share its
+ * {role, name} — 0 for the first one.
+ *
+ * A page routinely exposes several elements with the same accessible name (a
+ * table of "Edit" links, three "Add to cart" buttons). {role, name} alone then
+ * matches all of them, and resolving with `.first()` silently acts on the wrong
+ * one. The runner already computes the ordinal when it remaps a recorded ref
+ * (buildRefMap/remapRefs); the ordinal has to survive down to the locator or
+ * that disambiguation is thrown away at the last step.
+ */
+function ordinalInGroup(elements, el) {
+  const i = elements
+    .filter((e) => e.role === el.role && e.name === el.name)
+    .findIndex((e) => e.ref === el.ref)
+  return i < 0 ? 0 : i
+}
+
 function refLocator(page, el) {
   // Primary locator for a recorded element: getByRole(role, {name, exact:true}).
   // When the element has no accessible name, getByRole({name:''}) matches
   // nothing, so fall back to a bare [role="..."] selector.
+  //
+  // Returns the UN-narrowed locator: its count() is how callers learn how many
+  // elements share this {role,name}, which they need before they can narrow.
   if (el.name) return page.getByRole(el.role, { name: el.name, exact: true })
   return page.locator(`[role="${el.role}"]`)
+}
+
+/**
+ * Narrow a locator to the ordinal-th match. Applied AFTER counting: `count()`
+ * on an already-narrowed locator always returns 1, which would make every
+ * "does this locator still have my element?" check pass vacuously.
+ */
+function nth(loc, ordinal) {
+  return ordinal === 0 ? loc : loc.nth(ordinal)
 }
 
 function fallbackLocators(page, el) {
@@ -139,22 +178,23 @@ export function createWebDriver({
       }
       const el = this._elements.find((e) => e.ref === String(ref))
       if (!el) throw new NatlError(`ref ${ref} not in last snapshot`)
+      const ordinal = ordinalInGroup(this._elements, el)
 
       switch (action) {
         case 'click':
-          await clickViaChain(this._page, el)
+          await clickViaChain(this._page, el, ordinal)
           return
         case 'fill':
-          await refLocator(this._page, el).fill(value)
+          await nth(refLocator(this._page, el), ordinal).fill(value)
           return
         case 'clear': {
-          const loc = refLocator(this._page, el)
+          const loc = nth(refLocator(this._page, el), ordinal)
           if (typeof loc.clear === 'function') await loc.clear()
           else await loc.fill('')
           return
         }
         case 'press':
-          await refLocator(this._page, el).press(value)
+          await nth(refLocator(this._page, el), ordinal).press(value)
           return
         case 'scroll':
           // page.evaluate on the element to scroll
@@ -170,7 +210,7 @@ export function createWebDriver({
           }, value)
           return
         case 'wait':
-          await refLocator(this._page, el).waitFor({ state: 'attached' })
+          await nth(refLocator(this._page, el), ordinal).waitFor({ state: 'attached' })
           return
         default:
           throw new NatlError(`unknown action: ${action}`)
@@ -198,11 +238,13 @@ export function createWebDriver({
   return driver
 }
 
-async function clickViaChain(page, el) {
-  // Try the fallbacks in order. The first locator that matches at least one
-  // element wins; if every locator matches 0 elements, throw.
+async function clickViaChain(page, el, ordinal = 0) {
+  // Try the fallbacks in order. The first locator holding this element's
+  // ordinal wins; if no locator has that many matches, throw rather than click
+  // a different element.
   const chain = fallbackLocators(page, el)
-  let totalMatched = 0
+  let anyMatch = false
+  let maxSeen = 0
   for (const loc of chain) {
     let n = 0
     try {
@@ -210,15 +252,19 @@ async function clickViaChain(page, el) {
     } catch {
       continue
     }
-    if (n > 0) {
-      await loc.first().click()
+    if (n > 0) anyMatch = true
+    if (n > maxSeen) maxSeen = n
+    if (n > ordinal) {
+      await nth(loc, ordinal).click()
       return
     }
-    totalMatched += n
   }
-  if (totalMatched === 0) {
+  if (!anyMatch) {
     throw new NatlError(`no element found matching role=${el.role} name=${el.name}`)
   }
+  throw new NatlError(
+    `element ${ordinal + 1} of only ${maxSeen} matching role=${el.role} name=${el.name} — page changed since the snapshot`,
+  )
 }
 
 /**

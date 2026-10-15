@@ -168,7 +168,11 @@ test('starter test is returned and contains a step( call', async () => {
   const { starterCode } = await init({ cwd: dir, answers: webAnswers });
   assert.equal(typeof starterCode, 'string');
   assert.match(starterCode, /step\(/);
-  assert.match(starterCode, /from '\.\.\/\.\.\/\.\.\/src\/steps\.js'/);
+  // The generated file must not reach outside the project it lives in: the old
+  // '../../../src/steps.js' resolved to the PARENT of the project root, so
+  // every generated starter test died with ERR_MODULE_NOT_FOUND.
+  assert.match(starterCode, /from 'natl\/src\/steps\.js'/)
+  assert.doesNotMatch(starterCode, /\.\.\/\.\.\/\.\.\//, 'no path may climb out of the project')
   const written = await fs.readFile(path.join(dir, 'examples', 'webproj', 'webproj.test.js'), 'utf8');
   assert.equal(written, starterCode);
 });
@@ -188,3 +192,31 @@ test('validateAnswers normalizes and strips apiKey', () => {
   assert.equal(a.web.headless, true);
   assert.equal(a.web.device, 'iPhone 13');
 });
+
+test('re-running init keeps the previous config instead of destroying it', async () => {
+  // `natl init` is re-run to add a test. It used to overwrite natl.config.json,
+  // the starter test and .env.example outright, taking a hand-tuned baseUrl,
+  // the real app URL and the test source with it.
+  const dir = await tmpDir();
+  await init({ cwd: dir, answers: webAnswers })
+  const configPath = path.join(dir, 'natl.config.json')
+  const testPath = path.join(dir, 'examples', 'webproj', 'webproj.test.js')
+  const envPath = path.join(dir, '.env.example')
+
+  const tuned = { ...JSON.parse(await fs.readFile(configPath, 'utf8')), baseUrl: 'https://internal.corp/v1' }
+  await fs.writeFile(configPath, JSON.stringify(tuned, null, 2) + '\n', 'utf8')
+  await fs.writeFile(testPath, '// MY HOURS OF WORK\n', 'utf8')
+  await fs.writeFile(envPath, 'NATL_API_KEY=sk-real\n', 'utf8')
+
+  const { backups } = await init({ cwd: dir, answers: webAnswers })
+
+  assert.equal(backups.length, 3, 'every overwritten file must be preserved')
+  assert.ok(backups.includes(configPath + '.bak'))
+  assert.ok(backups.includes(testPath + '.bak'))
+  assert.ok(backups.includes(envPath + '.bak'))
+  assert.equal(JSON.parse(await fs.readFile(configPath + '.bak', 'utf8')).baseUrl, 'https://internal.corp/v1')
+  assert.match(await fs.readFile(testPath + '.bak', 'utf8'), /MY HOURS OF WORK/)
+  assert.match(await fs.readFile(envPath + '.bak', 'utf8'), /sk-real/)
+  // and the new content still landed
+  assert.match(await fs.readFile(testPath, 'utf8'), /step\(/)
+})

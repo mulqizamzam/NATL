@@ -97,7 +97,7 @@ export function buildCapabilities(mobile, platform) {
 function starterTest({ projectName, appType }) {
   if (appType === 'mobile') {
     // No goto/click on mobile: fill via an accessibility-id plus one NL step.
-    return `import { test, step, fill, expectText, expectCount } from '../../../src/steps.js';
+    return `import { test, step, fill, expectText, expectCount } from 'natl/src/steps.js';
 
 const t = test('${projectName}: mobile login', [
   step('Open the app'),
@@ -112,7 +112,7 @@ console.log('Run: natl run examples/${projectName}/${projectName}.test.js');
 console.log(t.name);
 `;
   }
-  return `import { test, step, goto, click, fill, expectText, expectCount } from '../../../src/steps.js';
+  return `import { test, step, goto, click, fill, expectText, expectCount } from 'natl/src/steps.js';
 
 const t = test('${projectName}: web smoke', [
   goto('/'),
@@ -190,11 +190,24 @@ export async function init({ cwd, answers, interactive = false }) {
   if (a.appType === 'mobile') {
     written.push([path.join(root, 'examples', a.projectName, 'capabilities.json'), JSON.stringify(config.mobile.capabilities, null, 2) + '\n']);
   }
+  // Re-running `natl init` to add a test used to overwrite the user's config,
+  // starter test and .env.example with generated content — losing a hand-tuned
+  // baseUrl, the real app URL, and hours of test source. Keep the previous
+  // file next to the new one instead of destroying it.
+  const backups = [];
   for (const [p, text] of written) {
+    try {
+      await fs.access(p);
+      const bak = `${p}.bak`;
+      await fs.copyFile(p, bak);
+      backups.push(bak);
+    } catch {
+      // No existing file: nothing to preserve.
+    }
     await fs.writeFile(p, text, 'utf8');
   }
 
-  return { configPath, testPath, starterCode };
+  return { configPath, testPath, starterCode, backups };
 }
 
 /**

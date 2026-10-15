@@ -24,6 +24,9 @@ function runCli(args, cwd) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [join(cwd, 'bin', 'natl.js'), ...args], {
       cwd,
+      // stdin closed: a command that waits for input must fail fast here, not
+      // hang the suite.
+      stdio: ['ignore', 'pipe', 'pipe'],
       // Hand the child the browser directory resolved for THIS checkout, so the
       // test behaves the same whether or not the caller exported one.
       env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? '' },
@@ -184,6 +187,22 @@ test('exit code contract: a broken test file is a failure (1), not usage (2)', a
     const noTest = await runCli(['run', 'notatest.test.js'], dir)
     assert.equal(noTest.code, 1, `a file with no test object must exit 1: ${noTest.all}`)
     assert.match(noTest.all, /no test object/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('natl init without a terminal fails clearly instead of exiting 13', async () => {
+  // The CLI called askQuestions(true) unconditionally, so with no TTY readline
+  // got EOF, the pending question never settled, and node exited 13 with
+  // "Detected unsettled top-level await" — a Node internal, not a user message.
+  const dir = await throwawayProject()
+  try {
+    const r = await runCli(['init'], dir)
+    assert.equal(r.code, 2, `expected a usage error, got ${r.code}: ${r.all}`)
+    assert.match(r.all, /terminal|TTY/, 'the message must say what is missing')
+    assert.doesNotMatch(r.all, /unsettled top-level await/, 'no Node internal may leak')
+    assert.doesNotMatch(r.all, /askQuestions/, 'no internal function name in user output')
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

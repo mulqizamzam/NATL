@@ -256,6 +256,17 @@ try {
   }
 
   if (cmd === 'init') {
+    // askQuestions(true) with no terminal: readline reads EOF, the pending
+    // question never settles, and node exits 13 with "Detected unsettled
+    // top-level await" — a Node internal instead of something a user can act
+    // on. The guard for exactly this lives in src/init.js; the CLI used to
+    // bypass it by passing `true` unconditionally.
+    if (!process.stdin.isTTY) {
+      die(
+        'init needs an interactive terminal — no TTY is available. ' +
+          'Write natl.config.json by hand (see README), or run this in a terminal.',
+      )
+    }
     const { init, askQuestions } = await import('../src/init.js')
     const answers = await askQuestions(true)
     const { configPath, testPath, backups = [] } = await init({ cwd: process.cwd(), answers })

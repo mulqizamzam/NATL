@@ -142,7 +142,7 @@ mati, path cache bertabrakan, perilaku elemen hidden tak terdokumentasi.
       sengaja tidak diubah dan alasannya tertulis)
 - [x] `node --test` hijau di kondisi akhir: 136/136 pada HEAD d3b26c9
 
-## Sisa pekerjaan (direkonsiliasi 2026-10-15, HEAD d3b26c9)
+## Sisa pekerjaan (direkonsiliasi 2026-10-15, HEAD d3b26c9; init non-TTY ditutup)
 
 Sudah tertutup setelah daftar lama ini ditulis: `report.js` (`summarize` dihapus +
 `test/report.test.js`), fake WebDriver bentuk New Session W3C, mutasi fixture di
@@ -152,10 +152,13 @@ diterima. Bukti: `b997523`, `ab941f4`, `d1fb3fb`.
 
 **Masih terbuka di kode**
 
-- [ ] `natl init` tanpa TTY → exit 13 + "unsettled top-level await". `bin/natl.js`
-      memanggil `askQuestions(true)` tanpa memeriksa `process.stdin.isTTY`; guard-nya
-      sudah ada di `src/init.js` tetapi tidak pernah dipakai dari CLI. Ini satu-satunya
-      cacat sisa yang bisa dipicu user.
+- [x] `natl init` tanpa TTY: sekarang exit 2 dengan pesan yang bisa ditindaklanjuti
+      (`init needs an interactive terminal — no TTY is available. …`), nol file ditulis.
+      Test CLI menutupnya (merah sebelum fix, exit 13 + "Detected unsettled top-level
+      await"). SISA saudaranya, sengaja tidak disentuh: Ctrl-D di TTY nyata masih
+      menghasilkan gejala yang sama karena `rl.question` tidak pernah settle — butuh
+      penanganan 'close' pada readline, dan saya tidak mau menambah mesin itu tanpa
+      cara memverifikasinya.
 - [ ] Jalur "replay throws → replan + re-record" di mode auto tidak punya test; cabang
       re-snapshot setelah replay parsial di `runner.js` tak tersentuh.
 - [ ] Invariant "tulis ke temp lalu rename" tak punya test yang bisa gagal.

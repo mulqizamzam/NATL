@@ -18,7 +18,9 @@ Installing it matters: the CLI is `bin/natl.js` inside the package, so without
 the package there is no `natl` command to run. `npx natl init` on its own only
 works once the package is published to a registry.
 
-`natl init` asks for the app type, model provider, and model name, then writes:
+`natl init` asks for the app type, model provider, and model name, then writes.
+It needs an interactive terminal: with no TTY it exits 2 and writes nothing,
+rather than hanging on a prompt nobody can answer:
 
 - `natl.config.json` — provider, base URL, cache directory, web or mobile config
 - `examples/<project>/<project>.test.js` — starter test

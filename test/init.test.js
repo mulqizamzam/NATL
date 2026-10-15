@@ -82,10 +82,14 @@ test('mobile: config has mobile.server and mobile.capabilities', async () => {
   });
   assert.deepEqual(cfg.mobile.selectors, { mode: 'auto' });
   assert.equal(cfg.web, undefined);
-  const caps = JSON.parse(
-    await fs.readFile(path.join(dir, 'examples', 'mobproj', 'capabilities.json'), 'utf8'),
+  // Capabilities live in the config, and nowhere else: init used to also write
+  // examples/<proj>/capabilities.json, which the CLI never read.
+  assert.equal(cfg.mobile.capabilities.platformName, 'Android');
+  await assert.rejects(
+    () => fs.readFile(path.join(dir, 'examples', 'mobproj', 'capabilities.json'), 'utf8'),
+    (err) => err.code === 'ENOENT',
+    'no stray capabilities file may be written',
   );
-  assert.equal(caps.platformName, 'Android');
 });
 
 test('ios: capabilities use XCUITest and iOS', async () => {

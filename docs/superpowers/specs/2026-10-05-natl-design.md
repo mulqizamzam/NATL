@@ -193,3 +193,40 @@ real device, because they all speak the same protocol.
   attributes (`id`, volatile text) is deliberately NOT done — instead the user
   is told to keep NL steps off pages with rotating content, and replay-miss is
   cheap (one extra model call), so churn costs money, not correctness.
+
+## As built — drift note (2026-10-15)
+
+This document records the design as decided on 2026-10-05 and is kept as
+history. Where the shipped code differs, the code is authoritative. The deltas:
+
+- **Dependency count.** There is no runtime dependency. `playwright` is an
+  optional peer (`>= 1.63.0`, needed for `page.ariaSnapshotJSON`) plus a
+  devDependency, so a mobile-only project installs nothing.
+- **D1 contract.** `snapshot()` returns `{elements, text, fingerprint}`, not a
+  bare array, and `act()` takes one action object (`{action, ref, value, sel}`),
+  not `(action, el)`. A `ref` is a stringified position in the last snapshot, but
+  drivers re-resolve it by `{role, name}` plus its ordinal within that group —
+  role+name alone always hit the first of several same-named elements.
+- **D3 lazy planner.** `runner.js` imports `planner.js` statically, so the module
+  loads on every run; only the *call* is skipped when a test has no `step()`. The
+  observable claim (`modelCalls === 0`) holds and is asserted.
+- **Failure behaviour**, corrected where the code differs:
+  - "naming the missing env var" — the messages are `no provider configured —
+    cannot execute NL step` and `missing API key for <provider>`; neither names
+    an env var. Remaining steps are skipped, so a deterministic step *after* a
+    failing NL step does not run.
+  - "invalid JSON → one repair retry, then fail with the raw response" —
+    unparseable JSON throws immediately (raw capped at 500 chars). The single
+    repair retry fires only on parseable-but-wrong-shape replies and gives up
+    with `planner failed after 2 attempts`.
+  - A plan delivered as JSON **text** is accepted as well: measured against a
+    real provider, the model returned a correct plan in `message.content` while
+    only `tool_calls` was parsed, so a good plan was reported as malformed.
+  - "element not found during planning" reports the ref (`invalid ref in plan`),
+    not the snapshot that was offered.
+- **Cache invariants.** Survival under concurrency now rests on an exclusive
+  `<path>.lock` around load→transform→save, wrapping the temp-file-then-rename
+  write. Mtime comparison and a read-back compare-and-set were each tried first
+  and each lost entries when writers overlapped. A provider 429 is retried up to
+  `NATL_LLM_ATTEMPTS` (default 10, ten attempts total) honouring `Retry-After`.
+

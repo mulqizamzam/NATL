@@ -33,20 +33,4 @@ export function toJson(report) {
   return JSON.stringify(report, null, 2)
 }
 
-/**
- * Summarize a list of reports across one or more test files.
- */
-export function summarize(reports) {
-  const total = reports.length
-  const passed = reports.filter((r) => r.ok).length
-  const failed = total - passed
-  let modelCalls = 0
-  let replayed = 0
-  for (const r of reports) {
-    modelCalls += r.modelCalls
-    replayed += r.replayed
-  }
-  return { total, passed, failed, modelCalls, replayed }
-}
-
-export default { renderReport, toJson, summarize }
+export default { renderReport, toJson }

@@ -56,7 +56,11 @@ export function startFakeDriver({ fixture = '', calls: callsArr = [], errors = {
 
       let m
       if (method === 'POST' && path === '/session') {
-        write(res, 200, { sessionId: 'fake-sess-1', capabilities: {} })
+        // W3C shape, which is what Appium 3 actually sends: sessionId nested
+        // under `value`. The flat form is a legacy build; the driver accepts
+        // both, but the suite used to exercise only the legacy one, so a
+        // refactor could have broken real Appium with every test still green.
+        write(res, 200, { value: { sessionId: 'fake-sess-1', capabilities: {} } })
         callsArr.push({ method, path, body: rawBody, status: 200 })
         return
       }

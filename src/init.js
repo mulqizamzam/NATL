@@ -205,9 +205,9 @@ export async function init({ cwd, answers, interactive = false }) {
     [testPath, starterCode],
     [path.join(root, '.env.example'), envContent],
   ];
-  if (a.appType === 'mobile') {
-    written.push([path.join(root, 'examples', a.projectName, 'capabilities.json'), JSON.stringify(config.mobile.capabilities, null, 2) + '\n']);
-  }
+  // No separate capabilities.json: the CLI reads capabilities from
+  // mobile.capabilities in natl.config.json, so a second copy could be edited
+  // for hours without changing anything.
   // Re-running `natl init` to add a test used to overwrite the user's config,
   // starter test and .env.example with generated content — losing a hand-tuned
   // baseUrl, the real app URL, and hours of test source. Keep the previous

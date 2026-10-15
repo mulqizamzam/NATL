@@ -112,11 +112,17 @@ test('e2e: replay mode after record makes zero model calls', async () => {
 test('e2e: a changed page falls back to the model', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'natl-e2e-changed-'))
   const cachePath = join(dir, 'cache.json')
-  const fixturePath = join(import.meta.dirname, '..', 'examples', 'web', 'fixture', 'index.html')
-  const { readFile, writeFile } = await import('node:fs/promises')
+  const { readFile, writeFile, cp } = await import('node:fs/promises')
+  // Serve a PRIVATE copy. This test rewrites the page it is serving, and
+  // example-web.test.js serves the shipped fixture from a parallel process:
+  // mutating the real file made that test load a page with the email input
+  // deleted (a false red), and a SIGKILL mid-test left the repo modified.
+  const servedRoot = join(dir, 'fixture')
+  await cp(join(import.meta.dirname, '..', 'examples', 'web', 'fixture'), servedRoot, { recursive: true })
+  const fixturePath = join(servedRoot, 'index.html')
   const original = await readFile(fixturePath, 'utf8')
 
-  const { server, port } = await startServer({ port: 0 })
+  const { server, port } = await startServer({ port: 0, root: servedRoot })
   const url = `http://127.0.0.1:${port}`
   const driver = createWebDriver({ url, headless: true })
   await driver.open()
@@ -156,9 +162,9 @@ test('e2e: a changed page falls back to the model', async () => {
   } finally {
     await driver.close()
     server.close()
+    // Nothing to restore: the mutated page lived in this temp tree, and the
+    // repository's own fixture was never touched.
     await rm(dir, { recursive: true, force: true })
-    // Restore the original fixture so no other test is poisoned.
-    await writeFile(fixturePath, original)
   }
 })
 

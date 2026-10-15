@@ -235,3 +235,38 @@ test('callModel — malformed response (bad arguments JSON) throws NatlError', a
     (e) => e instanceof NatlError && /malformed response/.test(e.message),
   )
 })
+
+// ---------------------------------------------------------------------------
+// a stalled provider must not hang the CLI
+// ---------------------------------------------------------------------------
+
+test('a provider that never responds is a timeout error, not a hang', async () => {
+  const prevTimeout = process.env.NATL_HTTP_TIMEOUT_MS
+  const prevFetch = globalThis.fetch
+  process.env.NATL_HTTP_TIMEOUT_MS = '80'
+  try {
+    // Respect the abort signal the way a real fetch does, and never resolve
+    // otherwise: this is a provider that accepted the connection and stalled.
+    globalThis.fetch = (url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => reject(opts.signal.reason))
+    })
+
+    const started = Date.now()
+    await assert.rejects(
+      () => callModel({
+        provider: 'openai',
+        model: 'gpt-4o',
+        apiKey: 'sk-test',
+        system: 's',
+        user: 'u',
+      }),
+      (err) => err.name === 'NatlError' && /timed out after 80ms/.test(err.message),
+    )
+    const elapsed = Date.now() - started
+    assert.ok(elapsed < 5_000, `expected an ~80ms deadline, waited ${elapsed}ms`)
+  } finally {
+    if (prevTimeout === undefined) delete process.env.NATL_HTTP_TIMEOUT_MS
+    else process.env.NATL_HTTP_TIMEOUT_MS = prevTimeout
+    globalThis.fetch = prevFetch
+  }
+})

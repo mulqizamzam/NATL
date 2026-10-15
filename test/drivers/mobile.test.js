@@ -360,3 +360,28 @@ test('act() targets the element the plan named even when the page shifted under 
     assert.equal(sourceReads(), 1, 'act() must not re-snapshot between actions of one plan')
   })
 })
+
+test('a wedged Appium server is a timeout error, not a hang', async () => {
+  // The server accepts the connection and never answers — an Appium that is
+  // alive enough to hold the socket but not enough to reply.
+  const http = await import('node:http')
+  const server = http.createServer(() => { /* never respond */ })
+  await new Promise((resolve) => server.listen(0, resolve))
+
+  const prevTimeout = process.env.NATL_WD_TIMEOUT_MS
+  process.env.NATL_WD_TIMEOUT_MS = '80'
+  try {
+    const driver = createMobileDriver({ server: `http://127.0.0.1:${server.address().port}` })
+    const started = Date.now()
+    await assert.rejects(
+      () => driver.open(),
+      (err) => err.name === 'NatlError' && /timed out after 80ms/.test(err.message),
+    )
+    const elapsed = Date.now() - started
+    assert.ok(elapsed < 5_000, `expected an ~80ms deadline, waited ${elapsed}ms`)
+  } finally {
+    if (prevTimeout === undefined) delete process.env.NATL_WD_TIMEOUT_MS
+    else process.env.NATL_WD_TIMEOUT_MS = prevTimeout
+    server.close()
+  }
+})

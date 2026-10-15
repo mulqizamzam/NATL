@@ -132,19 +132,29 @@ export function createWebDriver({
     },
 
     async close() {
-      // Idempotent and never re-throws (frozen contract 3).
+      // Idempotent and never re-throws (frozen contract 3). Each handle closes
+      // independently: one failing close used to abandon the others, and the
+      // final cleanup nulled the references, so the surviving browser process
+      // could never be reached again — it kept the event loop alive.
       try {
         if (this._page) await this._page.close()
-        if (this._context) await this._context.close()
-        if (this._browser) await this._browser.close()
       } catch {
         // swallow: close() must never throw
-      } finally {
-        this._page = null
-        this._context = null
-        this._browser = null
-        this._elements = null
       }
+      try {
+        if (this._context) await this._context.close()
+      } catch {
+        // swallow
+      }
+      try {
+        if (this._browser) await this._browser.close()
+      } catch {
+        // swallow
+      }
+      this._page = null
+      this._context = null
+      this._browser = null
+      this._elements = null
       return this
     },
 

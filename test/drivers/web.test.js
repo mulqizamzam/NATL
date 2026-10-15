@@ -160,6 +160,30 @@ describe('web driver (frozen contract 3)', () => {
     assert.notEqual(a.fingerprint, b.fingerprint, 'two screens with different text must not share a cache key')
   })
 
+  it('close() closes every handle even when one close throws', async () => {
+    // One try around three closes meant a failing page.close() left the browser
+    // process running — and the `finally` nulled the handles, so nothing could
+    // ever reach it again.
+    const d = createWebDriver({ headless: true })
+    await d.open()
+    const { _page: pg, _context: ctx, _browser: br } = d
+    const closed = []
+    const realPageClose = pg.close.bind(pg)
+    const realContextClose = ctx.close.bind(ctx)
+    const realBrowserClose = br.close.bind(br)
+    pg.close = async () => { closed.push('page'); throw new Error('page close failed') }
+    ctx.close = async () => { closed.push('context'); return realContextClose() }
+    br.close = async () => { closed.push('browser'); return realBrowserClose() }
+
+    await d.close()
+
+    assert.deepEqual(closed, ['page', 'context', 'browser'])
+    assert.equal(br.isConnected(), false, 'the browser process must not survive close()')
+    assert.equal(d._browser, null)
+    // release the page handle the broken stub could not close
+    await realPageClose().catch(() => {})
+  })
+
   it("find('#missing') returns count 0 without throwing", async () => {
     await page.setContent(PAGE)
     const res = await driver.find('#missing')

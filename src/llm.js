@@ -7,6 +7,7 @@
  */
 
 import { NatlError } from './errors.js'
+import { fetchWithTimeout, llmTimeoutMs } from './http.js'
 
 // Single source of truth for provider base URLs. Exported so init.js does not
 // duplicate the table — a second copy would silently drift from this one.
@@ -244,11 +245,11 @@ export async function callModel({
       'anthropic-version': '2023-06-01',
       [def.authHeader]: apiKey,
     }
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    })
+    const resp = await fetchWithTimeout(
+      url,
+      { method: 'POST', headers, body: JSON.stringify(body) },
+      { timeoutMs: llmTimeoutMs(), label: `request to ${provider}` },
+    )
     if (resp.status >= 400) {
       throw new NatlError(`HTTP ${resp.status} from ${provider} (${resolvedBaseUrl})`)
     }
@@ -266,11 +267,11 @@ export async function callModel({
       ? `${def.authScheme} ${apiKey}`
       : apiKey
   }
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  })
+  const resp = await fetchWithTimeout(
+    url,
+    { method: 'POST', headers, body: JSON.stringify(body) },
+    { timeoutMs: llmTimeoutMs(), label: `request to ${provider}` },
+  )
   if (resp.status >= 400) {
     throw new NatlError(`HTTP ${resp.status} from ${provider} (${resolvedBaseUrl})`)
   }

@@ -1,4 +1,5 @@
 import { NatlError } from '../errors.js'
+import { fetchWithTimeout, webdriverTimeoutMs } from '../http.js'
 import { makeFingerprint } from '../fingerprint.js'
 
 // Appium 3 W3C WebDriver over global fetch. No client library: the endpoint set
@@ -13,7 +14,10 @@ const WAIT_INTERVAL_MS = 200
 async function request(method, url, body) {
   const init = { method, headers: { 'Content-Type': 'application/json' } }
   if (body !== undefined) init.body = JSON.stringify(body)
-  const resp = await fetch(url, init)
+  const resp = await fetchWithTimeout(url, init, {
+    timeoutMs: webdriverTimeoutMs(),
+    label: `WebDriver ${method} ${url}`,
+  })
   if (!resp.ok) {
     // The W3C error body carries the machine-readable code, and 404 alone does
     // not say why: "no such element" is an expected outcome, while "invalid

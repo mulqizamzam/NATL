@@ -220,3 +220,22 @@ test('re-running init keeps the previous config instead of destroying it', async
   // and the new content still landed
   assert.match(await fs.readFile(testPath, 'utf8'), /step\(/)
 })
+
+test('init rejects a selector mode the mobile driver cannot honour', async () => {
+  // The interactive prompt offered auto|xpath|accessibility-id|css, but
+  // createMobileDriver accepts only 'auto': init happily wrote a config that
+  // `natl run` then refused to load.
+  const dir = await tmpDir()
+  const bogus = { ...mobileAnswers, mobile: { ...mobileAnswers.mobile, selectors: { mode: 'xpath' } } }
+  await assert.rejects(
+    () => init({ cwd: dir, answers: bogus }),
+    (err) => err.name === 'NatlError' && /selectors\.mode/.test(err.message) && /auto/.test(err.message),
+  )
+})
+
+test('init accepts selectors.mode auto', async () => {
+  const dir = await tmpDir()
+  const ok = { ...mobileAnswers, mobile: { ...mobileAnswers.mobile, selectors: { mode: 'auto' } } }
+  const res = await init({ cwd: dir, answers: ok })
+  assert.match(res.configPath, /natl\.config\.json$/)
+})

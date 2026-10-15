@@ -10,6 +10,26 @@ import { PROVIDER_BASE_URLS } from './llm.js';
 /** Base URLs used when `answers.baseUrl` is null. Ollama needs no key. */
 export const PROVIDERS = PROVIDER_BASE_URLS;
 
+/**
+ * The only selector mode the mobile driver implements.
+ *
+ * The interactive prompt used to offer auto|xpath|accessibility-id|css and the
+ * wizard wrote whichever was typed, so `natl init` could produce a config that
+ * `natl run` then refused to load ("unsupported selectors.mode: xpath").
+ * Resolution in the driver is per element, so 'auto' is the whole contract.
+ */
+export const SELECTOR_MODES = ['auto'];
+
+function normalizeSelectorMode(mode) {
+  if (mode === undefined || mode === null || mode === '') return 'auto';
+  if (!SELECTOR_MODES.includes(mode)) {
+    throw new NatlError(
+      `selectors.mode "${mode}" is not supported — the mobile driver implements only ${SELECTOR_MODES.join(', ')}`,
+    );
+  }
+  return mode;
+}
+
 function fail(message) {
   throw new NatlError(message);
 }
@@ -56,9 +76,7 @@ export function validateAnswers(answers) {
       appPath: typeof m.appPath === 'string' ? m.appPath : '',
       deviceName: typeof m.deviceName === 'string' ? m.deviceName : '',
       platformVersion: typeof m.platformVersion === 'string' ? m.platformVersion : '',
-      selectors: {
-        mode: m.selectors && typeof m.selectors.mode === 'string' ? m.selectors.mode : 'auto',
-      },
+      selectors: { mode: normalizeSelectorMode(m.selectors && m.selectors.mode) },
     };
   }
 
@@ -241,7 +259,7 @@ export async function askQuestions(interactive = false) {
         appPath: await ask('App path (.apk / .app): ', ''),
         deviceName: await ask('Device name: ', ''),
         platformVersion: await ask('Platform version: ', ''),
-        selectors: { mode: await ask('Selector mode (auto|xpath|accessibility-id|css): ', 'auto') },
+        selectors: { mode: await ask(`Selector mode (${SELECTOR_MODES.join('|')}): `, 'auto') },
       };
     } else {
       web = {

@@ -33,5 +33,24 @@
   },
   "devDependencies": {
     "playwright": ">=1.63.0 <2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mulqizamzam/NATL.git"
+  },
+  "homepage": "https://github.com/mulqizamzam/NATL#readme",
+  "bugs": {
+    "url": "https://github.com/mulqizamzam/NATL/issues"
+  },
+  "keywords": [
+    "e2e",
+    "testing",
+    "playwright",
+    "appium",
+    "webdriver",
+    "llm",
+    "natural-language",
+    "record-replay",
+    "cli"
+  ]
 }

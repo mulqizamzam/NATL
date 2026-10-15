@@ -179,9 +179,14 @@ diterima. Bukti: `b997523`, `ab941f4`, `d1fb3fb`.
 
 **Menunggu keputusan atau infrastruktur operator**
 
-- [ ] `git remote add` + push → CI pertama kali di mesin bersih. Ini menutup satu-satunya
-      klaim besar yang masih UNVERIFIABLE: semua verifikasi sesi ini berjalan di host ini
-      dengan `.browsers` yang sudah ada.
+- [x] Push ke `github.com/mulqizamzam/NATL` (commit `128bf10`). CI pertama **merah** di
+      Node 20 dan 22, dan itu menemukan cacat nyata yang tidak bisa dilihat dari host ini:
+      test timeout di `test/llm.test.js` menggantungkan diri pada `AbortSignal.timeout`,
+      yang timernya di-unref Node — di Node 20/22 event loop kosong sebelum deadline,
+      promise tak pernah settle, dan runner membatalkan seluruh file (8 test dilaporkan
+      gagal, 7 di antaranya `duration_ms: 0` alias tidak pernah jalan). Diperbaiki dengan
+      guard timer; diverifikasi 137/137 di Node 20.19.0, 22.23.3, dan 24.19.0. CI kedua
+      **hijau** di kedua leg. Pelajaran: matrix versi Node membayar dirinya sendiri.
 - [ ] Publish npm — ditunda operator; sampai itu README tetap "install dari source".
 - [ ] `AGENTS.md` untracked di root repo natl. Bukan artefak repo ini, dan selama ada di
       sini isinya ikut tersuntik sebagai instruksi workspace setiap turn.

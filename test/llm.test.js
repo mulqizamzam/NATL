@@ -247,8 +247,21 @@ test('a provider that never responds is a timeout error, not a hang', async () =
   try {
     // Respect the abort signal the way a real fetch does, and never resolve
     // otherwise: this is a provider that accepted the connection and stalled.
+    //
+    // The guard timer is load-bearing, and its absence is what CI caught on
+    // Node 20 and 22: node unrefs the timer behind AbortSignal.timeout(), so
+    // with nothing else pending the event loop empties before the deadline
+    // fires, the promise never settles, and the test runner cancels the WHOLE
+    // file ("Promise resolution is still pending but the event loop has already
+    // resolved") — taking the seven later tests in this file down with it. A
+    // real stalled fetch holds a socket open; this keeps the loop alive the
+    // same way, and clears it the moment the abort arrives.
     globalThis.fetch = (url, opts) => new Promise((_resolve, reject) => {
-      opts.signal.addEventListener('abort', () => reject(opts.signal.reason))
+      const keepAlive = setTimeout(() => {}, 5_000)
+      opts.signal.addEventListener('abort', () => {
+        clearTimeout(keepAlive)
+        reject(opts.signal.reason)
+      })
     })
 
     const started = Date.now()

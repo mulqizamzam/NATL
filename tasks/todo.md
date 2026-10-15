@@ -141,3 +141,39 @@ mati, path cache bertabrakan, perilaku elemen hidden tak terdokumentasi.
 ## Checkpoint akhir
 - [ ] Semua slice severity high ditutup atau punya alasan tertulis
 - [ ] `npm test` hijau di kondisi akhir
+
+## Sisa pekerjaan (state untuk round berikutnya)
+
+Belum dikerjakan, sudah terbukti/dilaporkan auditor:
+
+**High/medium yang masih terbuka**
+- [ ] `src/report.js` (renderReport/toJson/summarize) tidak punya test yang bisa gagal —
+      auditor test HIGH-2. `renderReport` bisa mencetak "PASS" untuk report gagal tanpa
+      satu test pun merah; `--report` juga tak diuji isinya.
+- [ ] Fake WebDriver mengirim respons New Session non-W3C (`{sessionId}` di top level,
+      bukan `{value:{sessionId}}`); cabang spec-compliant tak teruji — auditor test MEDIUM-3.
+- [ ] `test/e2e-web.test.js` memutasi `examples/web/fixture/index.html` yang sedang
+      dilayani `example-web.test.js` di proses paralel → false red / repo rusak bila
+      di-SIGKILL — auditor test MEDIUM-5. Fix: pakai root temp (seam `root` sudah ada).
+- [ ] Jalur "replay throws → replan + re-record" di mode auto tidak diuji; cabang
+      re-snapshot setelah replay parsial tak tersentuh — auditor test MEDIUM-4.
+- [ ] Invariant "tulis ke temp lalu rename" tak punya test yang bisa gagal — MEDIUM-6.
+- [ ] 8 invariant spec tanpa test (group-size mismatch fallback, "fail fast tanpa API
+      key", model unreachable di runner, `click('#missing')` harus gagal, shape elemen D1,
+      tool schema llm, skip `expectUrl` di mobile, entri cache lama harus tersisa).
+- [ ] `natl init` non-TTY → exit 13 + "unsettled top-level await" — auditor examples M3.
+- [ ] `examples/mobile/README.md` menyebut `natl.config.json` + `capabilities.json` yang
+      tidak ada; `capabilities.json` juga tidak pernah dibaca CLI — examples M1/M2.
+- [ ] Elemen hidden: `expectCount` menghitungnya dan `expectText` membacanya, tak
+      terdokumentasi, dan fixture repo tak memakainya — examples M6.
+- [ ] Exit code: import test yang melempar → 2 (harusnya 1); error runtime (browser
+      launch, provider) juga di-classify 2 — examples M4.
+- [ ] `loadCache` korup menggagalkan test yang tidak punya NL step sama sekali.
+
+**Menunggu**
+- [ ] Laporan auditor docs-drift (diminta ulang, bentuk padat).
+- [ ] Verdict cold verification (subagent `Cold verification of claims`, 17 klaim ternary).
+
+**Tidak bisa diverifikasi di mesin ini**
+- Appium/device nyata tidak ada (`appium`/`adb` tidak terpasang): seluruh driver mobile
+  = spec + fake. CI juga belum pernah jalan di runner (`--with-deps` butuh apt/root).
